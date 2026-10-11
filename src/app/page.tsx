@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Coins, 
   Flame, 
@@ -340,6 +340,9 @@ export default function Dashboard() {
     other: true,
   });
 
+  // Smart Picks Recommendation Category Radio (Matching desktop gui.py var_rec_cat)
+  const [recCategory, setRecCategory] = useState<'workhorse' | 'fast' | 'batch' | 'overnight'>('workhorse');
+
   // Crafting Filters & Player Stats
   const [craftSearch, setCraftSearch] = useState('');
   const [craftSkillFilter, setCraftSkillFilter] = useState<string>('all');
@@ -361,6 +364,29 @@ export default function Dashboard() {
   const [w308CashStack, setW308CashStack] = useState<number>(5000000);
   const [w308SelectedItem, setW308SelectedItem] = useState<string>('Rune 2h sword');
   const [w308Role, setW308Role] = useState<'buyer' | 'seller'>('buyer');
+  const [w308AgreedPrice, setW308AgreedPrice] = useState<number>(37600);
+  const [w308Qty, setW308Qty] = useState<number>(132);
+  const [w308SortCol, setW308SortCol] = useState<string>('profit_ea');
+  const [w308SortAsc, setW308SortAsc] = useState<boolean>(false);
+
+  // Smart Recommendations sorting state
+  const [recSortCol, setRecSortCol] = useState<string>('profit_ea');
+  const [recSortAsc, setRecSortAsc] = useState<boolean>(false);
+
+  // Session Ledger State
+  const [sessionLog, setSessionLog] = useState<Array<{
+    id: string;
+    timestamp: number;
+    itemName: string;
+    qty: number;
+    price: number;
+    totalCoins: number;
+    netProfit: number;
+    role: 'buyer' | 'seller' | 'alch';
+    magicXp?: number;
+    skill?: string;
+    skillXp?: number;
+  }>>([]);
 
   // Bond Roadmap Interactive State (stored in localStorage)
   const [userCoins, setUserCoins] = useState<number>(0);
@@ -409,6 +435,8 @@ export default function Dashboard() {
       if (savedCart) setCartItems(JSON.parse(savedCart));
       const savedLevels = localStorage.getItem('alchmate_player_levels');
       if (savedLevels) setPlayerLevels(JSON.parse(savedLevels));
+      const savedSessions = localStorage.getItem('alchmate_session_log');
+      if (savedSessions) setSessionLog(JSON.parse(savedSessions));
     } catch (e) {
       console.error('Error loading localStorage', e);
     }
@@ -462,6 +490,57 @@ export default function Dashboard() {
     }
     setCartItems(updated);
     localStorage.setItem('alchmate_cart', JSON.stringify(updated));
+  };
+
+  // Auto-Fill Empty GE Slots matching desktop gui.py auto_fill_ge_slots
+  const handleAutoFillGeSlots = () => {
+    const emptySlots = 8 - cartItems.length;
+    if (emptySlots <= 0) {
+      alert('All 8 Grand Exchange slots are already filled in your Shopping Cart (8/8)! Clear or remove items before auto-filling.');
+      return;
+    }
+
+    const currentAllocated = cartItems.reduce((acc, c) => acc + (c.buyPrice * c.limit), 0);
+    const availableBudget = unlimitedBudget ? 999999999 : Math.max(0, cashStack - currentAllocated);
+
+    if (!unlimitedBudget && availableBudget < 5000) {
+      alert(`Your Cash Stack (${formatGp(cashStack)}) is already fully allocated across existing cart items. Increase your budget or clear items!`);
+      return;
+    }
+
+    // Candidate selection based on current recommendation category
+    let pool: typeof filteredAlchItems = [];
+    if (recCategory === 'workhorse') {
+      const whIds = new Set((workhorseItemsData as any[]).map(w => w.id));
+      pool = filteredAlchItems.filter(it => whIds.has(it.id));
+    } else if (recCategory === 'fast') {
+      pool = filteredAlchItems.filter(it => it.volume >= 5000);
+    } else if (recCategory === 'batch') {
+      pool = [...filteredAlchItems].sort((a, b) => b.batch_profit - a.batch_profit);
+    } else {
+      pool = filteredAlchItems.filter(it => it.volume >= 500 && it.buy_limit >= 70);
+    }
+
+    const inCartIds = new Set(cartItems.map(c => c.id));
+    const candidates = pool.filter(it => !inCartIds.has(it.id) && it.profit > 0 && it.buy_price <= availableBudget);
+
+    if (candidates.length === 0) {
+      alert('No eligible recommendation items found that fit into your remaining budget.');
+      return;
+    }
+
+    const toAdd = candidates.slice(0, emptySlots).map(it => ({
+      id: it.id,
+      name: it.name,
+      buyPrice: it.buy_price,
+      limit: it.buy_limit,
+      profit: it.profit
+    }));
+
+    const updated = [...cartItems, ...toAdd];
+    setCartItems(updated);
+    localStorage.setItem('alchmate_cart', JSON.stringify(updated));
+    showToast(`⚡ Auto-Filled ${toAdd.length} GE Slots into your Cart!`);
   };
 
   // Floating Toast helper matching desktop FloatingToast
@@ -644,10 +723,41 @@ export default function Dashboard() {
       .slice(0, 30);
   }, [priceData, overnightDuration]);
 
-  // W308 Anvil Bulk Margins Sheet (Uses all 28 staples from desktop gui.py)
+  // OSRS Offer-X In-Game Trade Shorthand (e.g. 7580k, 15m)
+  const getOfferXShorthand = (amount: number) => {
+    if (amount <= 0) return '0';
+    if (amount % 1000000 === 0) return `${amount / 1000000}m`;
+    if (amount % 1000 === 0) return `${amount / 1000}k`;
+    return amount.toLocaleString();
+  };
+
+  // Material cost calculation for W308 items supporting primary and secondary materials (matches gui.py:2056)
+  const getW308MatCost = useCallback((it: any) => {
+    if (!it || !it.skill) return { totalCost: 0, desc: 'Not craftable / monster drop' };
+    const matId = it.mat_id;
+    if (!matId) return { totalCost: 0, desc: 'No raw materials required' };
+    const latest = priceData?.latest || {};
+    const qty1 = it.mat_qty || 1;
+    const ge1 = latest[String(matId)];
+    const p1 = ge1?.high || ge1?.low || it.mat_default || 0;
+    let totalCost = qty1 * p1;
+    let desc = `${qty1}x ${it.mat_name} (${p1.toLocaleString()} ea)`;
+
+    if (it.mat2_id) {
+      const qty2 = it.mat2_qty || 1;
+      const ge2 = latest[String(it.mat2_id)];
+      const p2 = ge2?.high || ge2?.low || it.mat2_default || 0;
+      totalCost += qty2 * p2;
+      desc += ` + ${qty2}x ${it.mat2_name} (${p2.toLocaleString()} ea)`;
+    }
+    return { totalCost, desc };
+  }, [priceData]);
+
+  // W308 Anvil Bulk Margins Sheet (Uses all staples from desktop gui.py)
   const w308Items = useMemo(() => {
     const latest = priceData?.latest || {};
-    return (w308StaplesData as any[]).map((st) => {
+    const activeBudget = unlimitedBudget ? 999999999 : cashStack;
+    const list = (w308StaplesData as any[]).map((st) => {
       const iid = String(st.id);
       const latestPrice = latest[iid]?.high || latest[iid]?.low || st.w308_buy;
       const w308BuyPrice = st.w308_buy;
@@ -658,43 +768,318 @@ export default function Dashboard() {
       const batch1kProfitBuyer = profitBuyer * 1000;
 
       // Seller mode: Player crafts/smiths items, sells bulk in W308
-      const matPrice = latest[String(st.mat_id)]?.low || st.mat_default || 12000;
-      const matCost = matPrice * (st.mat_qty || 3);
+      const { totalCost: matCost, desc: matDesc } = getW308MatCost(st);
       const profitSeller = w308SellP2P - matCost;
+
+      const tradePrice = w308Role === 'buyer' ? w308BuyPrice : w308SellP2P;
+      const maxBudgetStack = tradePrice > 0 ? Math.floor(activeBudget / tradePrice) : 0;
+      const totalSpend = maxBudgetStack * tradePrice;
+      const profitEa = w308Role === 'buyer' ? profitBuyer : profitSeller;
+      const expectedProfit = maxBudgetStack * profitEa;
+      const marginPct = (w308Role === 'buyer'
+        ? (w308BuyPrice > 0 ? (profitBuyer / w308BuyPrice) * 100 : 0)
+        : (matCost > 0 ? (profitSeller / matCost) * 100 : 0)
+      );
+
+      const pAd = (tradePrice / 1000) % 1 === 0 ? `${tradePrice / 1000}k` : `${(tradePrice / 1000).toFixed(1)}k`;
+      const chatAd = w308Role === 'buyer'
+        ? `Buying ${st.short || st.name} ${pAd} ea Bulk - Trade Me`
+        : `Selling ${st.short || st.name} ${pAd} ea Bulk - Trade Me`;
 
       return {
         ...st,
         ge_price: latestPrice,
         w308_price: w308BuyPrice,
         w308_sell_price: w308SellP2P,
-        profit_ea: w308Role === 'buyer' ? profitBuyer : profitSeller,
+        trade_price: tradePrice,
+        profit_ea: profitEa,
+        margin_pct: marginPct,
+        max_stack: maxBudgetStack,
+        total_spend: totalSpend,
+        expected_profit: expectedProfit,
+        chat_ad: chatAd,
         batch_1k_profit: w308Role === 'buyer' ? batch1kProfitBuyer : profitSeller * 1000,
-        mat_cost: matCost
+        mat_cost: matCost,
+        mat_desc: matDesc,
       };
     });
-  }, [priceData, effectiveNatPrice, w308Role]);
 
-  // Selected W308 item calculation
-  const selectedW308 = useMemo(() => {
-    const item = w308Items.find(it => it.name === w308SelectedItem) || w308Items[0];
-    if (!item) return null;
-    const maxQty = Math.floor(w308CashStack / item.w308_price);
-    const totalSpend = maxQty * item.w308_price;
-    const grossAlch = maxQty * item.alch;
-    const totalNatCost = maxQty * effectiveNatPrice;
-    const netProfit = (item.alch - item.w308_price - effectiveNatPrice) * maxQty;
-    const chatAd = `B> ${item.name} ${(item.w308_price / 1000).toFixed(1)}k ea - VWB`;
+    return list.sort((a, b) => {
+      let valA: any = a[w308SortCol as keyof typeof a];
+      let valB: any = b[w308SortCol as keyof typeof b];
+      if (typeof valA === 'string') {
+        return w308SortAsc ? valA.localeCompare(valB) : valB.localeCompare(valA);
+      }
+      valA = valA || 0;
+      valB = valB || 0;
+      return w308SortAsc ? valA - valB : valB - valA;
+    });
+  }, [priceData, effectiveNatPrice, w308Role, getW308MatCost, unlimitedBudget, cashStack, w308SortCol, w308SortAsc]);
 
-    return {
-      ...item,
-      maxQty,
-      totalSpend,
-      grossAlch,
-      totalNatCost,
-      netProfit,
-      chatAd
+  const toggleSortW308 = (col: string) => {
+    if (w308SortCol === col) {
+      setW308SortAsc(!w308SortAsc);
+    } else {
+      setW308SortCol(col);
+      setW308SortAsc(false);
+    }
+  };
+
+  const toggleSortRec = (col: string) => {
+    if (recSortCol === col) {
+      setRecSortAsc(!recSortAsc);
+    } else {
+      setRecSortCol(col);
+      setRecSortAsc(false);
+    }
+  };
+
+  // Active selected W308 Staple object
+  const activeW308Staple = useMemo(() => {
+    return (w308StaplesData as any[]).find(it => it.name === w308SelectedItem) || (w308StaplesData as any[])[0];
+  }, [w308SelectedItem]);
+
+  // Handle item change in W308 validator
+  const handleSelectW308Item = (itemName: string) => {
+    setW308SelectedItem(itemName);
+    const item = (w308StaplesData as any[]).find(it => it.name === itemName);
+    if (item) {
+      const initialPrice = w308Role === 'buyer' ? item.w308_buy : (item.w308_sell_p2p || item.w308_buy);
+      setW308AgreedPrice(initialPrice);
+      const safeQty = initialPrice > 0 ? Math.max(1, Math.floor(cashStack / initialPrice)) : 100;
+      setW308Qty(safeQty);
+    }
+  };
+
+  // Fractions in W308 validator
+  const handleSetW308Fraction = (fraction: number) => {
+    const budget = fraction * cashStack;
+    const price = w308AgreedPrice > 0 ? w308AgreedPrice : 1;
+    const qty = Math.max(1, Math.floor(budget / price));
+    setW308Qty(qty);
+  };
+
+  // Computed W308 2nd Screen Validator Totals (matches desktop gui.py:2624)
+  const validatorTotals = useMemo(() => {
+    const item = activeW308Staple;
+    const qty = w308Qty > 0 ? w308Qty : 0;
+    const price = w308AgreedPrice > 0 ? w308AgreedPrice : 0;
+    const totalCoins = qty * price;
+    const shorthand = getOfferXShorthand(totalCoins);
+    const pAd = (price / 1000) % 1 === 0 ? `${price / 1000}k` : `${(price / 1000).toFixed(1)}k`;
+    const shortName = item?.short || item?.name || 'Item';
+
+    if (w308Role === 'buyer') {
+      const totalAlch = qty * (item?.alch || 0);
+      const totalNats = qty * effectiveNatPrice;
+      const netProfit = totalAlch - totalCoins - totalNats;
+      const profitEa = qty > 0 ? Math.floor(netProfit / qty) : 0;
+      const remainingCash = cashStack - totalCoins;
+      const adText = `Buying ${qty.toLocaleString()} ${shortName} ${pAd} ea Bulk - Trade Me`;
+
+      return {
+        totalCoins,
+        shorthand,
+        totalAlch,
+        totalNats,
+        netProfit,
+        profitEa,
+        remainingCash,
+        adText,
+        overBudget: remainingCash < 0,
+        deficit: Math.abs(remainingCash),
+      };
+    } else {
+      const { totalCost: matCostEa, desc: matDesc } = getW308MatCost(item);
+      const totalMatCost = qty * matCostEa;
+      const netProfit = totalCoins - totalMatCost;
+      const profitEa = qty > 0 ? Math.floor(netProfit / qty) : 0;
+      const marginPct = matCostEa > 0 ? (profitEa / matCostEa) * 100 : 0;
+      const xpEa = item?.xp || 0;
+      const totalXp = Math.floor(qty * xpEa);
+      const skill = item?.skill || 'Smithing';
+      const remainingBudget = cashStack - totalMatCost;
+      const adText = `Selling ${qty.toLocaleString()} ${shortName} ${pAd} ea Bulk - Trade Me`;
+
+      return {
+        totalCoins,
+        shorthand,
+        matCostEa,
+        matDesc,
+        totalMatCost,
+        netProfit,
+        profitEa,
+        marginPct,
+        totalXp,
+        xpEa,
+        skill,
+        remainingBudget,
+        adText,
+        overBudget: remainingBudget < 0,
+        deficit: Math.abs(remainingBudget),
+      };
+    }
+  }, [activeW308Staple, w308Qty, w308AgreedPrice, w308Role, effectiveNatPrice, cashStack, getW308MatCost]);
+
+  const handleCopyTradeShorthand = () => {
+    navigator.clipboard.writeText(validatorTotals.shorthand);
+    showToast(`⌨️ Offer-X: Type '${validatorTotals.shorthand}' in Trade Screen (${validatorTotals.totalCoins.toLocaleString()} gp)`);
+  };
+
+  const handleCopyValidatorAd = () => {
+    navigator.clipboard.writeText(validatorTotals.adText);
+    showToast(`📢 Copied trade ad: "${validatorTotals.adText}"`);
+  };
+
+  const handleLogW308ToSession = () => {
+    if (w308Qty <= 0 || w308AgreedPrice <= 0) {
+      alert('Please enter a valid quantity and price greater than 0.');
+      return;
+    }
+    const entry = {
+      id: 'w308_' + Date.now(),
+      timestamp: Date.now(),
+      itemName: activeW308Staple?.name || 'Bulk Item',
+      qty: w308Qty,
+      price: w308AgreedPrice,
+      totalCoins: validatorTotals.totalCoins,
+      netProfit: validatorTotals.netProfit,
+      role: w308Role,
+      magicXp: w308Role === 'buyer' ? w308Qty * 65 : 0,
+      skill: w308Role === 'seller' ? (validatorTotals as any).skill : undefined,
+      skillXp: w308Role === 'seller' ? (validatorTotals as any).totalXp : undefined,
     };
-  }, [w308Items, w308SelectedItem, w308CashStack, effectiveNatPrice]);
+    const updated = [entry, ...sessionLog];
+    setSessionLog(updated);
+    localStorage.setItem('alchmate_session_log', JSON.stringify(updated));
+    showToast(`✓ Logged ${w308Qty.toLocaleString()}x ${activeW308Staple?.name} trade to Session Tracker!`);
+  };
+
+  // Smart Recommendations Table Rows (Matching desktop gui.py recalculate_rec_table)
+  const recRows = useMemo(() => {
+    const latest = priceData?.latest || {};
+    const volumes = (priceData as any)?.volumes || {};
+    const maxSpend = unlimitedBudget ? 999999999 : cashStack;
+    const query = searchQuery.trim().toLowerCase();
+
+    let items: Array<{
+      id: number;
+      name: string;
+      category: string;
+      target_bid: number;
+      alch_val: number;
+      profit_ea: number;
+      limit: number;
+      batch_profit: number;
+      speed: string;
+      batch_cost: number;
+      verdict: string;
+    }> = [];
+
+    if (recCategory === 'workhorse') {
+      items = (workhorseItemsData as any[])
+        .map((spec) => {
+          const iid = String(spec.id);
+          const itemData = filteredAlchItems.find((i) => i.id === spec.id);
+          const pData = latest[iid] || {};
+          const buyPrice = pData.low || pData.high || (itemData ? itemData.buy_price : 0);
+          const highAlch = itemData?.highalch || (spec.name.includes('2h') || spec.name.includes('legs') || spec.name.includes('skirt') ? 38400 : 30000);
+          const profit = highAlch - buyPrice - effectiveNatPrice;
+          const baseLimit = spec.limit || 70;
+          const vol = volumes[iid] || (itemData ? itemData.volume : 5000);
+          const batchProfit = profit * baseLimit;
+          const batchCost = buyPrice * baseLimit;
+          const speedBadge = vol > 10000 ? '⚡ Instant' : vol > 2000 ? '🟢 Rapid' : '🟡 Moderate';
+
+          return {
+            id: spec.id,
+            name: spec.name,
+            category: '🏆 Workhorse',
+            target_bid: buyPrice,
+            alch_val: highAlch,
+            profit_ea: profit,
+            limit: baseLimit,
+            batch_profit: batchProfit,
+            speed: speedBadge,
+            batch_cost: batchCost,
+            verdict: spec.verdict,
+          };
+        })
+        .filter((row) => {
+          if (query && !row.name.toLowerCase().includes(query) && !row.verdict.toLowerCase().includes(query)) return false;
+          return true;
+        });
+    } else {
+      // Dynamic candidates from filteredAlchItems
+      items = filteredAlchItems
+        .filter((it) => {
+          if (it.profit <= 0) return false;
+          if (it.buy_price > maxSpend) return false;
+          if (query && !it.name.toLowerCase().includes(query)) return false;
+
+          if (recCategory === 'fast') {
+            return it.volume >= 5000;
+          } else if (recCategory === 'batch') {
+            return it.buy_limit >= 10 && it.batch_profit >= 10000;
+          } else if (recCategory === 'overnight') {
+            return it.profit >= 250 && it.buy_limit >= 15;
+          }
+          return true;
+        })
+        .map((it) => {
+          let catLabel = 'Smart Pick';
+          let verdict = 'Solid alch margin.';
+          if (recCategory === 'fast') {
+            catLabel = '⚡ Fast Fill';
+            verdict = `⚡ High velocity: ${it.volume.toLocaleString()} 24h vol. Fills rapidly.`;
+          } else if (recCategory === 'batch') {
+            catLabel = '💰 Batch Profit';
+            verdict = `💰 Top Batch Yield: Earns +${it.batch_profit.toLocaleString()} gp for full ${it.buy_limit} batch.`;
+          } else if (recCategory === 'overnight') {
+            catLabel = '🌙 Overnight';
+            verdict = `🌙 Patient sleeper: +${it.profit.toLocaleString()} gp/ea. Queue low bid overnight.`;
+          }
+
+          return {
+            id: it.id,
+            name: it.name,
+            category: catLabel,
+            target_bid: it.buy_price,
+            alch_val: it.highalch,
+            profit_ea: it.profit,
+            limit: it.buy_limit,
+            batch_profit: it.batch_profit,
+            speed: it.volume > 10000 ? '⚡ Instant' : it.volume > 2000 ? '🟢 Rapid' : '🟡 Moderate',
+            batch_cost: it.buy_price * it.buy_limit,
+            verdict: verdict,
+          };
+        });
+    }
+
+    return items.sort((a, b) => {
+      let valA: any = a[recSortCol as keyof typeof a];
+      let valB: any = b[recSortCol as keyof typeof b];
+      if (typeof valA === 'string') {
+        return recSortAsc ? valA.localeCompare(valB) : valB.localeCompare(valA);
+      }
+      valA = valA || 0;
+      valB = valB || 0;
+      return recSortAsc ? valA - valB : valB - valA;
+    });
+  }, [recCategory, filteredAlchItems, priceData, effectiveNatPrice, cashStack, unlimitedBudget, searchQuery, recSortCol, recSortAsc]);
+
+  const handleCopyAllRecs = () => {
+    if (recRows.length === 0) return;
+    const timing = getMarketTimingInfo();
+    const lines = [
+      `=== OSRS Smart Picks (${recCategory.toUpperCase()}) [${timing.timeStr}] ===`,
+      `Status: ${timing.badge}`,
+      '',
+      ...recRows.map((r, i) => `${i + 1}. ${r.name} | Bid: ${r.target_bid.toLocaleString()} gp | Alch: ${r.alch_val.toLocaleString()} gp | Profit: +${r.profit_ea.toLocaleString()} gp | Batch: +${r.batch_profit.toLocaleString()} gp | Speed: ${r.speed} | Verdict: ${r.verdict}`)
+    ];
+    navigator.clipboard.writeText(lines.join('\n'));
+    showToast(`📋 Copied ${recRows.length} recommendations to clipboard!`);
+  };
 
   // DYNAMIC 229 GE PRODUCTION RECIPES ENGINE
   const computedGeRecipes = useMemo(() => {
@@ -1784,7 +2169,7 @@ export default function Dashboard() {
             {/* Sub-view: W308 Anvil Sheet */}
             {alchSubView === 'w308' && (
               <div className="space-y-6">
-                {/* W308 Location & Clan Guest Banner (Desktop parity) */}
+                {/* W308 Location & Clan Guest Banner (Desktop parity gui.py:2087-2115) */}
                 <div className="bg-[#14171f] p-4 rounded-xl border border-[#242b3b] shadow-lg flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
                   <div className="flex flex-wrap items-center gap-3">
                     <span className="text-amber-400 font-extrabold text-sm flex items-center gap-1.5">
@@ -1805,133 +2190,363 @@ export default function Dashboard() {
                   </div>
                 </div>
 
+                {/* Anti-Scam Bulk Trade Calculator & 2nd Screen Verifier (Desktop gui.py:2174-2283) */}
                 <div className="bg-[#14171f] p-6 rounded-2xl border border-[#242b3b] space-y-4">
-                  <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                  <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-[#202738] pb-4">
                     <div>
-                      <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                        <FileSpreadsheet className="w-5 h-5 text-emerald-400" /> Bulk Margin Sheet &amp; Trade Validator
+                      <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                        <Shield className="w-5 h-5 text-amber-400" />
+                        🛡️ Anti-Scam Bulk Trade Calculator &amp; 2nd Screen Verifier
                       </h3>
-                      <p className="text-xs text-neutral-400 mt-1">
+                      <p className="text-xs text-neutral-400 mt-0.5">
                         Auto-scaled to your money stack so you never have to guess quantities or totals on the 2nd trade screen.
                       </p>
                     </div>
 
                     <div className="flex items-center gap-2 bg-[#1b202c] p-1 rounded-lg border border-[#2e374d] text-xs">
                       <button
-                        onClick={() => setW308Role('buyer')}
-                        className={`px-3 py-1 rounded font-bold transition-all ${w308Role === 'buyer' ? 'bg-amber-500 text-black' : 'text-neutral-400 hover:text-white'}`}
+                        onClick={() => {
+                          setW308Role('buyer');
+                          const it = (w308StaplesData as any[]).find(i => i.name === w308SelectedItem);
+                          if (it) setW308AgreedPrice(it.w308_buy);
+                        }}
+                        className={`px-3 py-1 rounded font-bold transition-all ${w308Role === 'buyer' ? 'bg-amber-500 text-black shadow-md shadow-amber-500/20' : 'text-neutral-400 hover:text-white'}`}
                       >
                         🛒 Alcher / Buyer Mode
                       </button>
                       <button
-                        onClick={() => setW308Role('seller')}
-                        className={`px-3 py-1 rounded font-bold transition-all ${w308Role === 'seller' ? 'bg-amber-500 text-black' : 'text-neutral-400 hover:text-white'}`}
+                        onClick={() => {
+                          setW308Role('seller');
+                          const it = (w308StaplesData as any[]).find(i => i.name === w308SelectedItem);
+                          if (it) setW308AgreedPrice(it.w308_sell_p2p || it.w308_buy);
+                        }}
+                        className={`px-3 py-1 rounded font-bold transition-all ${w308Role === 'seller' ? 'bg-amber-500 text-black shadow-md shadow-amber-500/20' : 'text-neutral-400 hover:text-white'}`}
                       >
                         🔨 Smither / Crafter Mode
                       </button>
                     </div>
                   </div>
 
-                  {/* Anti-Scam 2nd Screen Verification Warning */}
-                  <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-xs text-amber-200 flex items-center justify-between">
-                    <span className="flex items-center gap-2">
-                      <Shield className="w-4 h-4 text-amber-400 shrink-0" />
-                      <strong>🛡️ Anti-Scam 2nd Screen Verification:</strong> Always verify the other player placed the EXACT coin count and that you are receiving the EXACT noted items before hitting Accept. Watch for flashing exclamation marks!
-                    </span>
-                  </div>
+                  {/* Calculator Body: Inputs, Outputs, and Action Controls */}
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
+                    {/* Inputs on Left (4 cols) */}
+                    <div className="lg:col-span-4 bg-[#191e29] p-4 rounded-xl border border-[#252c3c] space-y-3 flex flex-col justify-between">
+                      <div className="space-y-3">
+                        <div>
+                          <label className="text-[11px] text-neutral-400 font-semibold block mb-1">Bulk Staple Item:</label>
+                          <select
+                            value={w308SelectedItem}
+                            onChange={(e) => handleSelectW308Item(e.target.value)}
+                            className="w-full bg-[#13161f] border border-[#2a3447] rounded-lg px-3 py-1.5 text-xs text-white font-semibold focus:outline-none focus:border-amber-500"
+                          >
+                            {(w308StaplesData as any[]).map((st) => (
+                              <option key={st.id} value={st.name} className="bg-[#13161f]">
+                                {st.name} (Alch: {st.alch.toLocaleString()} gp)
+                              </option>
+                            ))}
+                          </select>
+                        </div>
 
-                  {/* Anti-Scam 2nd Screen Box */}
-                  <div className="bg-[#191e29] p-5 rounded-xl border border-[#262e3d] space-y-4">
-                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                      <div>
-                        <span className="text-xs font-bold text-amber-400 uppercase tracking-wider block">🛡️ Anti-Scam Bulk Trade Verifier</span>
-                        <p className="text-xs text-neutral-400">Auto-scales to your cash stack so you never have to guess quantities or trade totals.</p>
+                        <div>
+                          <label className="text-[11px] text-neutral-400 font-semibold block mb-1">Agreed Ea (Coins):</label>
+                          <input
+                            type="number"
+                            value={w308AgreedPrice}
+                            onChange={(e) => setW308AgreedPrice(Number(e.target.value))}
+                            className="w-full bg-[#13161f] border border-[#2a3447] rounded-lg px-3 py-1.5 text-xs text-amber-400 font-mono font-bold focus:outline-none focus:border-amber-500"
+                          />
+                        </div>
+
+                        <div>
+                          <div className="flex justify-between items-center mb-1">
+                            <label className="text-[11px] text-neutral-400 font-semibold">Quantity:</label>
+                            <div className="flex gap-1">
+                              <button
+                                onClick={() => handleSetW308Fraction(1.0)}
+                                className="text-[10px] bg-[#222a3a] hover:bg-emerald-600 hover:text-white px-2 py-0.5 rounded text-emerald-400 font-bold font-mono transition-colors"
+                              >
+                                Max Cash
+                              </button>
+                              <button
+                                onClick={() => handleSetW308Fraction(0.5)}
+                                className="text-[10px] bg-[#222a3a] hover:bg-amber-600 hover:text-white px-2 py-0.5 rounded text-amber-400 font-bold font-mono transition-colors"
+                              >
+                                50%
+                              </button>
+                              <button
+                                onClick={() => handleSetW308Fraction(0.25)}
+                                className="text-[10px] bg-[#222a3a] hover:bg-cyan-600 hover:text-white px-2 py-0.5 rounded text-cyan-400 font-bold font-mono transition-colors"
+                              >
+                                25%
+                              </button>
+                            </div>
+                          </div>
+                          <input
+                            type="number"
+                            value={w308Qty}
+                            onChange={(e) => setW308Qty(Number(e.target.value))}
+                            className="w-full bg-[#13161f] border border-[#2a3447] rounded-lg px-3 py-1.5 text-xs text-emerald-400 font-mono font-bold focus:outline-none focus:border-emerald-500"
+                          />
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-neutral-400">Cash Stack:</span>
-                        <input
-                          type="number"
-                          value={w308CashStack}
-                          onChange={(e) => setW308CashStack(Number(e.target.value))}
-                          className="bg-[#13161f] border border-[#2b3547] rounded-lg px-3 py-1.5 text-xs text-white font-mono font-bold w-32"
-                        />
-                        <button onClick={() => setW308CashStack(10000000)} className="text-[11px] bg-[#242b3d] hover:bg-[#2d374f] px-2 py-1 rounded text-neutral-300">10M</button>
-                        <button onClick={() => setW308CashStack(5000000)} className="text-[11px] bg-[#242b3d] hover:bg-[#2d374f] px-2 py-1 rounded text-neutral-300">5M</button>
-                        <button onClick={() => setW308CashStack(2500000)} className="text-[11px] bg-[#242b3d] hover:bg-[#2d374f] px-2 py-1 rounded text-neutral-300">2.5M</button>
+
+                      <div className="text-[11px] text-neutral-500 pt-2 border-t border-[#232b3b]">
+                        Active Capital: <strong>{unlimitedBudget ? 'Unlimited' : formatGp(cashStack)}</strong>
                       </div>
                     </div>
 
-                    {selectedW308 && (
-                      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pt-3 border-t border-[#232a38] text-xs font-mono">
-                        <div className="bg-[#14171f] p-3 rounded-lg border border-[#222a38]">
-                          <span className="text-neutral-500 block text-[11px]">Selected Item:</span>
-                          <span className="text-white font-bold text-sm">{selectedW308.name}</span>
-                          <span className="text-neutral-400 block mt-0.5">{selectedW308.w308_price.toLocaleString()} gp / ea</span>
-                        </div>
-                        <div className="bg-[#14171f] p-3 rounded-lg border border-[#222a38]">
-                          <span className="text-neutral-500 block text-[11px]">Max Safe Stack:</span>
-                          <span className="text-cyan-400 font-bold text-sm">{selectedW308.maxQty.toLocaleString()} units</span>
-                          <span className="text-neutral-400 block mt-0.5">Total: {selectedW308.totalSpend.toLocaleString()} gp</span>
-                        </div>
-                        <div className="bg-[#14171f] p-3 rounded-lg border border-[#222a38]">
-                          <span className="text-neutral-500 block text-[11px]">High Alch Gross:</span>
-                          <span className="text-amber-400 font-bold text-sm">{selectedW308.grossAlch.toLocaleString()} gp</span>
-                          <span className="text-neutral-400 block mt-0.5">Nats: {selectedW308.totalNatCost.toLocaleString()} gp</span>
-                        </div>
-                        <div className="bg-[#14171f] p-3 rounded-lg border border-[#222a38]">
-                          <span className="text-neutral-500 block text-[11px]">Expected Net Profit:</span>
-                          <span className="text-emerald-400 font-extrabold text-sm">+{selectedW308.netProfit.toLocaleString()} gp</span>
-                          <button
-                            onClick={() => handleCopyChatAd(selectedW308.chatAd, selectedW308.name)}
-                            className="mt-1 w-full bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded py-1 text-[11px] font-bold flex items-center justify-center gap-1"
-                          >
-                            {copiedAdItem === selectedW308.name ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                            {copiedAdItem === selectedW308.name ? 'Copied Ad!' : 'Copy Chat Ad'}
-                          </button>
-                        </div>
+                    {/* Results in Center (5 cols) */}
+                    <div className="lg:col-span-5 bg-[#191e29] p-4 rounded-xl border border-[#252c3c] flex flex-col justify-between space-y-3 font-mono">
+                      <div className="grid grid-cols-2 gap-3 text-xs">
+                        {w308Role === 'buyer' ? (
+                          <>
+                            <div className="bg-[#13161f] p-2.5 rounded-lg border border-[#202738]">
+                              <span className="text-[11px] text-neutral-500 block">Coins To Give:</span>
+                              <span className="text-amber-400 font-bold text-sm">
+                                {validatorTotals.totalCoins.toLocaleString()} gp
+                              </span>
+                              <span className="text-[11px] text-neutral-400 block mt-0.5">
+                                Type: <strong className="text-white">{validatorTotals.shorthand}</strong>
+                              </span>
+                            </div>
+
+                            <div className="bg-[#13161f] p-2.5 rounded-lg border border-[#202738]">
+                              <span className="text-[11px] text-neutral-500 block">High Alch Gross:</span>
+                              <span className="text-purple-400 font-bold text-sm">
+                                {(validatorTotals as any).totalAlch?.toLocaleString()} gp
+                              </span>
+                              <span className="text-[11px] text-neutral-400 block mt-0.5">
+                                {formatGp((validatorTotals as any).totalAlch || 0)}
+                              </span>
+                            </div>
+
+                            <div className="bg-[#13161f] p-2.5 rounded-lg border border-[#202738]">
+                              <span className="text-[11px] text-neutral-500 block">Nature Runes Cost:</span>
+                              <span className="text-cyan-400 font-bold text-sm">
+                                {(validatorTotals as any).totalNats?.toLocaleString()} gp
+                              </span>
+                              <span className="text-[11px] text-neutral-400 block mt-0.5">
+                                {w308Qty.toLocaleString()} @ {effectiveNatPrice} ea
+                              </span>
+                            </div>
+
+                            <div className="bg-[#13161f] p-2.5 rounded-lg border border-[#202738]">
+                              <span className="text-[11px] text-neutral-500 block">Net Profit:</span>
+                              <span className={`font-bold text-sm ${(validatorTotals.netProfit >= 0) ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                {validatorTotals.netProfit >= 0 ? '+' : ''}{validatorTotals.netProfit.toLocaleString()} gp
+                              </span>
+                              <span className="text-[11px] text-neutral-400 block mt-0.5">
+                                +{validatorTotals.profitEa.toLocaleString()} gp / ea
+                              </span>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="bg-[#13161f] p-2.5 rounded-lg border border-[#202738]">
+                              <span className="text-[11px] text-neutral-500 block">Coins To Receive:</span>
+                              <span className="text-amber-400 font-bold text-sm">
+                                {validatorTotals.totalCoins.toLocaleString()} gp
+                              </span>
+                              <span className="text-[11px] text-neutral-400 block mt-0.5">
+                                Type: <strong className="text-white">{validatorTotals.shorthand}</strong>
+                              </span>
+                            </div>
+
+                            <div className="bg-[#13161f] p-2.5 rounded-lg border border-[#202738]">
+                              <span className="text-[11px] text-neutral-500 block">GE Material Cost:</span>
+                              <span className="text-rose-400 font-bold text-sm">
+                                {(validatorTotals as any).totalMatCost?.toLocaleString()} gp
+                              </span>
+                              <span className="text-[11px] text-neutral-400 block mt-0.5">
+                                {(validatorTotals as any).matCostEa?.toLocaleString()} gp / ea
+                              </span>
+                            </div>
+
+                            <div className="bg-[#13161f] p-2.5 rounded-lg border border-[#202738]">
+                              <span className="text-[11px] text-neutral-500 block">Training XP:</span>
+                              <span className="text-purple-400 font-bold text-sm">
+                                +{(validatorTotals as any).totalXp?.toLocaleString()} XP
+                              </span>
+                              <span className="text-[11px] text-neutral-400 block mt-0.5">
+                                {(validatorTotals as any).skill} (+{(validatorTotals as any).xpEa} ea)
+                              </span>
+                            </div>
+
+                            <div className="bg-[#13161f] p-2.5 rounded-lg border border-[#202738]">
+                              <span className="text-[11px] text-neutral-500 block">Net Smither Profit:</span>
+                              <span className={`font-bold text-sm ${(validatorTotals.netProfit >= 0) ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                {validatorTotals.netProfit >= 0 ? '+' : ''}{validatorTotals.netProfit.toLocaleString()} gp
+                              </span>
+                              <span className="text-[11px] text-neutral-400 block mt-0.5">
+                                {(validatorTotals as any).marginPct?.toFixed(1)}% margin
+                              </span>
+                            </div>
+                          </>
+                        )}
                       </div>
-                    )}
+
+                      {/* Cash Stack / Budget Status Bar */}
+                      <div className="p-2.5 rounded-lg bg-[#13161f] border border-[#202738] text-[11px] flex items-center justify-between">
+                        {w308Role === 'buyer' ? (
+                          validatorTotals.overBudget ? (
+                            <span className="text-rose-400 font-bold flex items-center gap-1.5">
+                              ⚠️ Over Budget by {validatorTotals.deficit.toLocaleString()} gp! (Stack: {formatGp(cashStack)})
+                            </span>
+                          ) : (
+                            <span className="text-emerald-400 font-semibold flex items-center gap-1.5">
+                              🪙 Money Stack: {formatGp(cashStack)} | Remaining Change: {(validatorTotals as any).remainingCash?.toLocaleString()} gp
+                            </span>
+                          )
+                        ) : (
+                          validatorTotals.overBudget ? (
+                            <span className="text-rose-400 font-bold flex items-center gap-1.5">
+                              ⚠️ Need {(validatorTotals as any).totalMatCost?.toLocaleString()} gp for materials! (Deficit: {validatorTotals.deficit.toLocaleString()} gp)
+                            </span>
+                          ) : (
+                            <span className="text-emerald-400 font-semibold flex items-center gap-1.5">
+                              🪙 Material Budget: {formatGp(cashStack)} | Surplus: {(validatorTotals as any).remainingBudget?.toLocaleString()} gp
+                            </span>
+                          )
+                        )}
+                      </div>
+
+                      {/* 2nd Screen Verification Warning */}
+                      <div className="text-[11px] text-amber-300 bg-amber-500/10 p-2 rounded-lg border border-amber-500/20 font-sans leading-relaxed">
+                        {w308Role === 'buyer' ? (
+                          <>⌨️ <strong>Trade Screen:</strong> Offer-X Coins ➔ Type &apos;<strong className="text-amber-400 font-mono">{validatorTotals.shorthand}</strong>&apos; (Enter) | Verify: <strong>{w308Qty.toLocaleString()} noted {w308SelectedItem}</strong></>
+                        ) : (
+                          <>🛡️ <strong>2nd Trade Screen:</strong> Offer <strong>{w308Qty.toLocaleString()} noted {w308SelectedItem}</strong> | VERIFY BUYER OFFERS EXACTLY <strong className="text-amber-400 font-mono">{validatorTotals.totalCoins.toLocaleString()} gp</strong> (Type: {validatorTotals.shorthand})!</>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Actions on Right (3 cols) */}
+                    <div className="lg:col-span-3 bg-[#191e29] p-4 rounded-xl border border-[#252c3c] flex flex-col justify-between space-y-2">
+                      <div className="space-y-2">
+                        <button
+                          onClick={handleCopyTradeShorthand}
+                          className="w-full bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold py-2.5 px-3 rounded-lg transition-all shadow-md shadow-amber-500/20 flex items-center justify-center gap-1.5 font-mono"
+                        >
+                          <Copy className="w-3.5 h-3.5 shrink-0" />
+                          {w308Role === 'buyer' ? `⌨️ Type: ${validatorTotals.shorthand}` : `🛡️ Verify: ${validatorTotals.shorthand}`}
+                        </button>
+
+                        <button
+                          onClick={handleCopyValidatorAd}
+                          className="w-full bg-[#242b3d] hover:bg-[#2d374f] text-cyan-300 border border-[#34405a] text-xs font-bold py-2.5 px-3 rounded-lg transition-all flex items-center justify-center gap-1.5"
+                        >
+                          <Send className="w-3.5 h-3.5 shrink-0" />
+                          📢 Copy Trade Ad
+                        </button>
+
+                        <button
+                          onClick={handleLogW308ToSession}
+                          className="w-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold py-2.5 px-3 rounded-lg transition-all flex items-center justify-center gap-1.5"
+                        >
+                          <Check className="w-3.5 h-3.5 shrink-0" />
+                          ✓ Log To Session
+                        </button>
+                      </div>
+
+                      <div className="text-[10px] text-neutral-500 text-center">
+                        Clicking &apos;Type&apos; copies the shorthand to paste into Offer-X prompt directly.
+                      </div>
+                    </div>
                   </div>
 
-                  {/* Margins Table (All 28 W308 Staples) */}
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-sm font-mono">
-                      <thead className="bg-[#1a1f2b] text-neutral-400 uppercase text-xs border-b border-[#262e3f]">
+                  {/* Margins Table (All W308 Staples with Sorting parity) */}
+                  <div className="overflow-x-auto pt-2">
+                    <table className="w-full text-left text-xs font-mono">
+                      <thead className="bg-[#1a1f2b] text-neutral-400 uppercase text-[11px] border-b border-[#262e3f] select-none">
                         <tr>
-                          <th className="px-4 py-3">Item</th>
-                          <th className="px-4 py-3">GE Instant</th>
-                          <th className="px-4 py-3">High Alch</th>
-                          <th className="px-4 py-3">{w308Role === 'buyer' ? 'W308 Buy (ea)' : 'W308 Sell (ea)'}</th>
-                          <th className="px-4 py-3 text-emerald-400">Profit / Ea</th>
-                          <th className="px-4 py-3 text-amber-400">1,000-Batch Profit</th>
-                          <th className="px-4 py-3 text-center">Action</th>
+                          <th onClick={() => toggleSortW308('name')} className="px-3 py-2.5 cursor-pointer hover:text-white">
+                            Bulk Item {w308SortCol === 'name' && (w308SortAsc ? '▲' : '▼')}
+                          </th>
+                          <th onClick={() => toggleSortW308('trade_price')} className="px-3 py-2.5 text-right cursor-pointer hover:text-white">
+                            {w308Role === 'buyer' ? 'W308 Buy (ea)' : 'W308 Sell (ea)'} {w308SortCol === 'trade_price' && (w308SortAsc ? '▲' : '▼')}
+                          </th>
+                          <th onClick={() => toggleSortW308('ge_price')} className="px-3 py-2.5 text-right cursor-pointer hover:text-white">
+                            GE Instant {w308SortCol === 'ge_price' && (w308SortAsc ? '▲' : '▼')}
+                          </th>
+                          <th onClick={() => toggleSortW308('alch')} className="px-3 py-2.5 text-right cursor-pointer hover:text-white">
+                            High Alch {w308SortCol === 'alch' && (w308SortAsc ? '▲' : '▼')}
+                          </th>
+                          <th onClick={() => toggleSortW308('profit_ea')} className="px-3 py-2.5 text-right text-emerald-400 cursor-pointer hover:text-white">
+                            Profit / Ea {w308SortCol === 'profit_ea' && (w308SortAsc ? '▲' : '▼')}
+                          </th>
+                          <th onClick={() => toggleSortW308('margin_pct')} className="px-3 py-2.5 text-right cursor-pointer hover:text-white">
+                            Margin % {w308SortCol === 'margin_pct' && (w308SortAsc ? '▲' : '▼')}
+                          </th>
+                          <th onClick={() => toggleSortW308('max_stack')} className="px-3 py-2.5 text-center cursor-pointer hover:text-white">
+                            Max Stack {w308SortCol === 'max_stack' && (w308SortAsc ? '▲' : '▼')}
+                          </th>
+                          <th onClick={() => toggleSortW308('total_spend')} className="px-3 py-2.5 text-right cursor-pointer hover:text-white">
+                            Total Spend {w308SortCol === 'total_spend' && (w308SortAsc ? '▲' : '▼')}
+                          </th>
+                          <th onClick={() => toggleSortW308('expected_profit')} className="px-3 py-2.5 text-right text-amber-400 cursor-pointer hover:text-white">
+                            Expected Profit {w308SortCol === 'expected_profit' && (w308SortAsc ? '▲' : '▼')}
+                          </th>
+                          <th className="px-3 py-2.5 text-center">Chat Ad Copy</th>
+                          <th className="px-3 py-2.5 text-center">Action</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#1e2433]">
                         {w308Items.map((item) => (
-                          <tr key={item.id} className="hover:bg-[#1a202c]/50">
-                            <td className="px-4 py-3 font-sans font-bold text-white flex items-center gap-2">
+                          <tr
+                            key={item.id}
+                            className={`hover:bg-[#1a202c]/60 transition-colors ${w308SelectedItem === item.name ? 'bg-amber-500/5' : ''}`}
+                          >
+                            <td className="px-3 py-2.5 font-sans font-bold text-white flex items-center gap-2">
                               <img
                                 src={`https://static.runelite.net/cache/item/icon/${item.id}.png`}
                                 alt=""
-                                className="w-6 h-6 object-contain shrink-0"
+                                className="w-5 h-5 object-contain shrink-0"
                                 onError={(e) => { e.currentTarget.style.display = 'none'; }}
                               />
-                              {item.name}
+                              <span>{item.name}</span>
                             </td>
-                            <td className="px-4 py-3 text-neutral-300">{item.ge_price.toLocaleString()} gp</td>
-                            <td className="px-4 py-3 text-neutral-400">{item.alch.toLocaleString()} gp</td>
-                            <td className="px-4 py-3 text-cyan-300">
-                              {(w308Role === 'buyer' ? item.w308_price : item.w308_sell_price).toLocaleString()} gp
+                            <td className="px-3 py-2.5 text-right text-cyan-300 font-bold">
+                              {item.trade_price.toLocaleString()} gp
                             </td>
-                            <td className="px-4 py-3 text-emerald-400 font-bold">+{item.profit_ea.toLocaleString()} gp</td>
-                            <td className="px-4 py-3 text-amber-400 font-extrabold">+{item.batch_1k_profit.toLocaleString()} gp</td>
-                            <td className="px-4 py-3 text-center">
+                            <td className="px-3 py-2.5 text-right text-neutral-400">
+                              {item.ge_price.toLocaleString()} gp
+                            </td>
+                            <td className="px-3 py-2.5 text-right text-neutral-300">
+                              {item.alch.toLocaleString()} gp
+                            </td>
+                            <td className={`px-3 py-2.5 text-right font-bold ${item.profit_ea >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                              {item.profit_ea >= 0 ? '+' : ''}{item.profit_ea.toLocaleString()} gp
+                            </td>
+                            <td className="px-3 py-2.5 text-right text-neutral-400">
+                              {item.margin_pct.toFixed(1)}%
+                            </td>
+                            <td className="px-3 py-2.5 text-center text-neutral-200">
+                              {item.max_stack.toLocaleString()}
+                            </td>
+                            <td className="px-3 py-2.5 text-right text-neutral-300">
+                              {formatGp(item.total_spend)}
+                            </td>
+                            <td className="px-3 py-2.5 text-right text-amber-400 font-extrabold">
+                              +{item.expected_profit.toLocaleString()} gp
+                            </td>
+                            <td className="px-3 py-2.5 text-center">
                               <button
-                                onClick={() => setW308SelectedItem(item.name)}
-                                className="px-2 py-1 rounded bg-[#222a3a] hover:bg-amber-500 hover:text-black text-xs font-bold text-neutral-300 transition-all font-sans"
+                                onClick={() => {
+                                  navigator.clipboard.writeText(item.chat_ad);
+                                  showToast(`📢 Copied: "${item.chat_ad}"`);
+                                }}
+                                className="px-2 py-1 rounded bg-[#202738] hover:bg-cyan-600 hover:text-white text-[11px] text-cyan-300 font-sans transition-colors inline-flex items-center gap-1"
                               >
-                                Select
+                                <Copy className="w-3 h-3" />
+                                Copy Ad
+                              </button>
+                            </td>
+                            <td className="px-3 py-2.5 text-center">
+                              <button
+                                onClick={() => handleSelectW308Item(item.name)}
+                                className={`px-2.5 py-1 rounded text-[11px] font-bold font-sans transition-all ${w308SelectedItem === item.name ? 'bg-amber-500 text-black' : 'bg-[#222a3a] hover:bg-amber-500 hover:text-black text-neutral-300'}`}
+                              >
+                                {w308SelectedItem === item.name ? 'Selected' : 'Select'}
                               </button>
                             </td>
                           </tr>
@@ -1943,88 +2558,176 @@ export default function Dashboard() {
               </div>
             )}
 
-            {/* Sub-view: Smart Recommendations */}
+            {/* Sub-view: Smart Recommendations (Desktop gui.py:1735-1825 parity) */}
             {alchSubView === 'rec' && (
               <div className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  {/* Category 1: Workhorses (From desktop workhorse_items.json) */}
-                  <div className="bg-[#14171f] p-5 rounded-xl border border-[#242b3b] space-y-4">
-                    <h3 className="font-bold text-white flex items-center gap-2">
-                      <Sparkles className="w-4 h-4 text-amber-400" /> All-Time Workhorses
-                    </h3>
-                    <p className="text-xs text-neutral-400">High-volume staples that fill rapidly 24/7 with zero price floor risk.</p>
-                    <div className="space-y-2">
-                      {(workhorseItemsData as any[]).slice(0, 5).map(wh => {
-                        const it = filteredAlchItems.find(i => i.id === wh.id);
-                        return (
-                          <div key={wh.id} className="bg-[#191e29] p-3 rounded-lg text-xs space-y-1">
-                            <div className="flex justify-between items-center">
-                              <div className="flex items-center gap-2">
-                                <img
-                                  src={`https://static.runelite.net/cache/item/icon/${wh.id}.png`}
-                                  alt=""
-                                  className="w-5 h-5 object-contain shrink-0"
-                                  onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                                />
-                                <span className="font-bold text-white">{wh.name}</span>
-                              </div>
-                              <span className="text-emerald-400 font-mono font-bold">
-                                {it ? `+${it.profit} gp` : 'Active'}
+                {/* Category Radio Selector & Action Controls Bar */}
+                <div className="bg-[#14171f] p-4 rounded-xl border border-[#242b3b] shadow-lg flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-amber-400 font-bold text-xs mr-2">Category:</span>
+                    {[
+                      { id: 'workhorse', label: '🏆 All-Time Workhorses', tip: 'Proven high-volume alch staples that rarely fail (Rune armor, weapons, battlestaves).' },
+                      { id: 'fast', label: '⚡ Fast Fills (<5m)', tip: 'Items with rapid transaction velocity and live 5m sales activity that fill in under 5 minutes.' },
+                      { id: 'batch', label: '💰 Top 4h Batch Profit', tip: 'Items ranked by total profit achievable in a single 4-hour GE limit cycle.' },
+                      { id: 'overnight', label: '🌙 Overnight Sleepers', tip: 'High-margin items ideal for leaving patient bids overnight during off-peak hours.' },
+                    ].map((cat) => (
+                      <button
+                        key={cat.id}
+                        onClick={() => setRecCategory(cat.id as any)}
+                        title={cat.tip}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${recCategory === cat.id ? 'bg-amber-500 text-black shadow-md shadow-amber-500/20' : 'bg-[#1b202c] text-neutral-300 hover:text-white border border-[#262f40]'}`}
+                      >
+                        {cat.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={handleAutoFillGeSlots}
+                      title="Inspects your remaining empty GE slots (up to 8) and automatically allocates the top recommended items into your shopping cart, fitted to your cash stack budget!"
+                      className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-all shadow-md shadow-emerald-600/20 flex items-center gap-1.5"
+                    >
+                      <Zap className="w-3.5 h-3.5" />
+                      ⚡ Auto-Fill Empty GE Slots
+                    </button>
+                    <button
+                      onClick={handleCopyAllRecs}
+                      title="Copy formatted text list of all displayed recommendations to clipboard."
+                      className="bg-[#242b3d] hover:bg-[#2d374f] text-cyan-300 border border-[#34405a] text-xs font-bold px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                      📋 Copy All
+                    </button>
+                    <button
+                      onClick={() => showToast('Refreshed recommendation calculations with latest GE prices.')}
+                      title="Refresh recommendations using latest live GE prices."
+                      className="bg-[#1b202c] hover:bg-[#252c3d] text-neutral-300 border border-[#2b3547] text-xs font-semibold px-2.5 py-1.5 rounded-lg transition-all flex items-center gap-1"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      Refresh
+                    </button>
+                  </div>
+                </div>
+
+                {/* Recommendations Table */}
+                <div className="bg-[#14171f] p-5 rounded-2xl border border-[#242b3b] space-y-4">
+                  <div className="flex justify-between items-center text-xs text-neutral-400">
+                    <span>Showing <strong>{recRows.length}</strong> top recommended items for &apos;{recCategory}&apos;</span>
+                    <span className="italic">💡 Click any item name to copy. Double-click or click &apos;+ Cart&apos; to allocate into Grand Exchange slots.</span>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs font-mono">
+                      <thead className="bg-[#1a1f2b] text-neutral-400 uppercase text-[11px] border-b border-[#262e3f] select-none">
+                        <tr>
+                          <th className="px-3 py-2.5 text-center">Rank</th>
+                          <th onClick={() => toggleSortRec('name')} className="px-3 py-2.5 cursor-pointer hover:text-white">
+                            Item Name {recSortCol === 'name' && (recSortAsc ? '▲' : '▼')}
+                          </th>
+                          <th onClick={() => toggleSortRec('category')} className="px-3 py-2.5 text-center cursor-pointer hover:text-white">
+                            Category {recSortCol === 'category' && (recSortAsc ? '▲' : '▼')}
+                          </th>
+                          <th onClick={() => toggleSortRec('target_bid')} className="px-3 py-2.5 text-right cursor-pointer hover:text-white">
+                            Target Bid {recSortCol === 'target_bid' && (recSortAsc ? '▲' : '▼')}
+                          </th>
+                          <th onClick={() => toggleSortRec('alch_val')} className="px-3 py-2.5 text-right cursor-pointer hover:text-white">
+                            Alch Value {recSortCol === 'alch_val' && (recSortAsc ? '▲' : '▼')}
+                          </th>
+                          <th onClick={() => toggleSortRec('profit_ea')} className="px-3 py-2.5 text-right text-emerald-400 cursor-pointer hover:text-white">
+                            Profit / Alch {recSortCol === 'profit_ea' && (recSortAsc ? '▲' : '▼')}
+                          </th>
+                          <th onClick={() => toggleSortRec('limit')} className="px-3 py-2.5 text-center cursor-pointer hover:text-white">
+                            4h Limit {recSortCol === 'limit' && (recSortAsc ? '▲' : '▼')}
+                          </th>
+                          <th onClick={() => toggleSortRec('batch_profit')} className="px-3 py-2.5 text-right text-amber-400 cursor-pointer hover:text-white">
+                            4h Batch Profit {recSortCol === 'batch_profit' && (recSortAsc ? '▲' : '▼')}
+                          </th>
+                          <th onClick={() => toggleSortRec('speed')} className="px-3 py-2.5 text-center cursor-pointer hover:text-white">
+                            Fill Speed {recSortCol === 'speed' && (recSortAsc ? '▲' : '▼')}
+                          </th>
+                          <th onClick={() => toggleSortRec('batch_cost')} className="px-3 py-2.5 text-right cursor-pointer hover:text-white">
+                            Batch Spend {recSortCol === 'batch_cost' && (recSortAsc ? '▲' : '▼')}
+                          </th>
+                          <th onClick={() => toggleSortRec('verdict')} className="px-3 py-2.5 cursor-pointer hover:text-white min-w-[200px]">
+                            Why Buy? / Verdict {recSortCol === 'verdict' && (recSortAsc ? '▲' : '▼')}
+                          </th>
+                          <th className="px-3 py-2.5 text-center">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#1e2433]">
+                        {recRows.map((row, idx) => {
+                          const inCart = cartItems.some(c => c.id === row.id);
+                          return (
+                          <tr
+                            key={row.id}
+                            onDoubleClick={() => handleToggleCart({ id: row.id, name: row.name, buy_price: row.target_bid, buy_limit: row.limit, profit: row.profit_ea })}
+                            className="hover:bg-[#1a202c]/60 transition-colors cursor-pointer"
+                          >
+                            <td className="px-3 py-2.5 text-center font-bold text-neutral-500">
+                              #{idx + 1}
+                            </td>
+                            <td
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigator.clipboard.writeText(row.name);
+                                showToast(`Copied "${row.name}"`);
+                              }}
+                              className="px-3 py-2.5 font-sans font-bold text-white flex items-center gap-2 hover:text-amber-400 transition-colors"
+                              title="Click to copy name to clipboard"
+                            >
+                              <img
+                                src={`https://static.runelite.net/cache/item/icon/${row.id}.png`}
+                                alt=""
+                                className="w-5 h-5 object-contain shrink-0"
+                                onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                              />
+                              <span>{row.name}</span>
+                            </td>
+                            <td className="px-3 py-2.5 text-center font-sans">
+                              <span className="text-[10px] px-2 py-0.5 rounded bg-[#202738] text-amber-300 font-semibold border border-amber-500/20">
+                                {row.category}
                               </span>
-                            </div>
-                            <p className="text-[11px] text-neutral-400 italic">{wh.verdict}</p>
-                          </div>
+                            </td>
+                            <td className="px-3 py-2.5 text-right text-neutral-300 font-bold">
+                              {row.target_bid.toLocaleString()} gp
+                            </td>
+                            <td className="px-3 py-2.5 text-right text-neutral-400">
+                              {row.alch_val.toLocaleString()} gp
+                            </td>
+                            <td className="px-3 py-2.5 text-right font-bold text-emerald-400">
+                              +{row.profit_ea.toLocaleString()} gp
+                            </td>
+                            <td className="px-3 py-2.5 text-center text-neutral-300">
+                              {row.limit.toLocaleString()}
+                            </td>
+                            <td className="px-3 py-2.5 text-right font-extrabold text-amber-400">
+                              +{row.batch_profit.toLocaleString()} gp
+                            </td>
+                            <td className="px-3 py-2.5 text-center">
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-200 font-semibold font-sans">
+                                {row.speed}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2.5 text-right text-neutral-400">
+                              {formatGp(row.batch_cost)}
+                            </td>
+                            <td className="px-3 py-2.5 font-sans text-neutral-300 text-[11px] leading-relaxed">
+                              {row.verdict}
+                            </td>
+                            <td className="px-3 py-2.5 text-center" onClick={(e) => e.stopPropagation()}>
+                              <button
+                                onClick={() => handleToggleCart({ id: row.id, name: row.name, buy_price: row.target_bid, buy_limit: row.limit, profit: row.profit_ea })}
+                                className={`px-2.5 py-1 rounded text-[11px] font-bold font-sans transition-all border ${inCart ? 'bg-emerald-500 text-black border-emerald-400' : 'bg-amber-500/10 hover:bg-amber-500 hover:text-black text-amber-300 border-amber-500/30'}`}
+                              >
+                                {inCart ? '✓ In Cart' : '+ Cart'}
+                              </button>
+                            </td>
+                          </tr>
                         );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Category 2: Batch Profit */}
-                  <div className="bg-[#14171f] p-5 rounded-xl border border-[#242b3b] space-y-4">
-                    <h3 className="font-bold text-white flex items-center gap-2">
-                      <Zap className="w-4 h-4 text-emerald-400" /> High-Margin Heavies
-                    </h3>
-                    <p className="text-xs text-neutral-400">Maximum GP per single cast. Perfect for active high-margin runs.</p>
-                    <div className="space-y-2">
-                      {filteredAlchItems.filter(it => it.profit > 450 && it.volume > 500).slice(0, 5).map(it => (
-                        <div key={it.id} className="bg-[#191e29] p-3 rounded-lg flex justify-between items-center text-xs">
-                          <div className="flex items-center gap-2">
-                            <img
-                              src={`https://static.runelite.net/cache/item/icon/${it.id}.png`}
-                              alt=""
-                              className="w-5 h-5 object-contain shrink-0"
-                              onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                            />
-                            <span className="font-bold text-white">{it.name}</span>
-                          </div>
-                          <span className="text-amber-400 font-mono font-bold">+{it.profit} gp</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Category 3: High Volume Stacks */}
-                  <div className="bg-[#14171f] p-5 rounded-xl border border-[#242b3b] space-y-4">
-                    <h3 className="font-bold text-white flex items-center gap-2">
-                      <Coins className="w-4 h-4 text-blue-400" /> High Buy Limits (11k+)
-                    </h3>
-                    <p className="text-xs text-neutral-400">Stackable bolts and battlestaves with 11,000–18,000 limits.</p>
-                    <div className="space-y-2">
-                      {filteredAlchItems.filter(it => it.buy_limit >= 10000 && it.profit > 100).slice(0, 5).map(it => (
-                        <div key={it.id} className="bg-[#191e29] p-3 rounded-lg flex justify-between items-center text-xs">
-                          <div className="flex items-center gap-2">
-                            <img
-                              src={`https://static.runelite.net/cache/item/icon/${it.id}.png`}
-                              alt=""
-                              className="w-5 h-5 object-contain shrink-0"
-                              onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                            />
-                            <span className="font-bold text-white">{it.name}</span>
-                          </div>
-                          <span className="text-blue-400 font-mono font-bold">+{it.profit} gp ({it.buy_limit.toLocaleString()})</span>
-                        </div>
-                      ))}
-                    </div>
+                        })}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               </div>
