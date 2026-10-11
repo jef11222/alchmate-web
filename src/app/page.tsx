@@ -487,6 +487,19 @@ export default function Dashboard() {
   const [editSessionModal, setEditSessionModal] = useState<{ show: boolean; entryId: string | null; qty: number; price: number; itemName: string; role: string }>({ show: false, entryId: null, qty: 100, price: 37600, itemName: '', role: 'alch' });
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
 
+  // Global Context Menu State (Desktop gui.py Right-Click Menus)
+  const [contextMenu, setContextMenu] = useState<{
+    show: boolean;
+    x: number;
+    y: number;
+    type: 'alch' | 'rec' | 'overnight' | 'w308' | 'craft' | 'guide';
+    item: any;
+  }>({ show: false, x: 0, y: 0, type: 'alch', item: null });
+
+  // Session Ledger Account Filter & Day Grouping
+  const [sessionAccountFilter, setSessionAccountFilter] = useState<string>('all');
+  const [sessionGrouping, setSessionGrouping] = useState<'flat' | 'day'>('flat');
+
   // Effective Nature Rune Cost
   const effectiveNatPrice = explorersRing ? 0 : natureRuneOverride;
 
@@ -517,10 +530,129 @@ export default function Dashboard() {
       if (savedLevels) setPlayerLevels(JSON.parse(savedLevels));
       const savedSessions = localStorage.getItem('alchmate_session_log');
       if (savedSessions) setSessionLog(JSON.parse(savedSessions));
+      if (savedToken) {
+        fetchCloudSync(savedToken);
+      }
     } catch (e) {
       console.error('Error loading localStorage', e);
     }
   }, []);
+
+  // Fetch Cloud Sync Data from Supabase
+  const fetchCloudSync = async (token: string) => {
+    if (!token) return;
+    try {
+      const res = await fetch(`/api/sync?token=${encodeURIComponent(token)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.character) {
+          if (data.character.coins) {
+            setUserCoins(data.character.coins);
+            localStorage.setItem('alchmate_coins', String(data.character.coins));
+          }
+          if (data.character.nature_runes) {
+            setUserNats(data.character.nature_runes);
+            localStorage.setItem('alchmate_nats', String(data.character.nature_runes));
+          }
+        }
+        if (Array.isArray(data.sessions) && data.sessions.length > 0) {
+          setSessionLog(prev => {
+            const existingIds = new Set(prev.map(p => p.id));
+            const newEntries = data.sessions
+              .filter((s: any) => !existingIds.has(String(s.id)))
+              .map((s: any) => ({
+                id: String(s.id),
+                timestamp: new Date(s.created_at || Date.now()).getTime(),
+                itemName: s.item_name,
+                qty: s.qty,
+                price: s.buy_price,
+                totalCoins: s.qty * s.buy_price,
+                netProfit: s.profit,
+                role: (s.cost_basis_type === 'W308' ? 'buyer' : 'alch') as any,
+                magicXp: s.xp || (s.qty * 65),
+                account: s.rsn || 'Default'
+              }));
+            if (newEntries.length === 0) return prev;
+            const merged = [...newEntries, ...prev];
+            localStorage.setItem('alchmate_session_log', JSON.stringify(merged));
+            return merged;
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Failed to fetch cloud sync:', err);
+    }
+  };
+
+  // Global Keyboard Shortcuts (Ctrl+F Search, Esc Clear/Close, F5 Refresh)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        const searchEl = document.getElementById('global-search-input');
+        if (searchEl) {
+          searchEl.focus();
+          (searchEl as HTMLInputElement).select();
+        }
+      } else if (e.key === 'Escape') {
+        if (contextMenu.show) {
+          setContextMenu(prev => ({ ...prev, show: false }));
+        } else if (quantityModal.show) {
+          setQuantityModal(prev => ({ ...prev, show: false }));
+        } else if (editTimerModal.show) {
+          setEditTimerModal(prev => ({ ...prev, show: false }));
+        } else if (editSessionModal.show) {
+          setEditSessionModal(prev => ({ ...prev, show: false }));
+        } else if (showManualLogModal) {
+          setShowManualLogModal(false);
+        } else {
+          setSearchQuery('');
+          setCraftSearch('');
+          setTimerItemSearch('');
+        }
+      } else if (e.key === 'F5') {
+        e.preventDefault();
+        fetch('/api/prices').then(res => res.json()).then(data => {
+          setPriceData(data);
+          setNextRefreshSec(60);
+          showToast('🔄 Prices refreshed via F5');
+        });
+      }
+    };
+
+    const handleGlobalClick = () => {
+      setContextMenu(prev => prev.show ? { ...prev, show: false } : prev);
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('click', handleGlobalClick);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('click', handleGlobalClick);
+    };
+  }, [contextMenu.show, quantityModal.show, editTimerModal.show, editSessionModal.show, showManualLogModal]);
+
+  // Desktop Notification Permission & Sender
+  const requestNotificationPermission = async () => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      const perm = await Notification.requestPermission();
+      if (perm === 'granted') {
+        showToast('🔔 Browser desktop notifications enabled!');
+      } else {
+        showToast('⚠️ Desktop notifications not permitted.');
+      }
+    }
+  };
+
+  const sendDesktopNotification = (title: string, body: string) => {
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+      try {
+        new Notification(title, { body, icon: 'https://oldschool.runescape.wiki/images/Nature_rune.png' });
+      } catch (e) {
+        // blocked
+      }
+    }
+  };
 
   // Save changes to localStorage
   const handleUpdateCoins = (val: number) => {
@@ -621,6 +753,21 @@ export default function Dashboard() {
     setCartItems(updated);
     localStorage.setItem('alchmate_cart', JSON.stringify(updated));
     showToast(`⚡ Auto-Filled ${toAdd.length} GE Slots into your Cart!`);
+  };
+
+  // Open Context Menu Helper matching desktop on_*_right_click
+  const handleContextMenu = (e: React.MouseEvent, type: 'alch' | 'rec' | 'overnight' | 'w308' | 'craft' | 'guide', item: any) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const x = typeof window !== 'undefined' ? Math.min(e.clientX, window.innerWidth - 270) : e.clientX;
+    const y = typeof window !== 'undefined' ? Math.min(e.clientY, window.innerHeight - 340) : e.clientY;
+    setContextMenu({
+      show: true,
+      x: Math.max(10, x),
+      y: Math.max(10, y),
+      type,
+      item
+    });
   };
 
   // Floating Toast helper matching desktop FloatingToast
@@ -2394,7 +2541,7 @@ export default function Dashboard() {
                       <Search className="w-4 h-4 absolute left-3 top-3 text-neutral-500" />
                       <input
                         type="text"
-                        placeholder="Search all 3,509 OSRS items..."
+                        id="global-search-input" placeholder="Search all 3,509 OSRS items (Ctrl+F)..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         className="w-full bg-[#1b202c] border border-[#2e374d] rounded-lg pl-9 pr-4 py-2 text-sm focus:outline-none focus:border-amber-500 text-white placeholder-neutral-500"
@@ -2888,35 +3035,61 @@ export default function Dashboard() {
                     <table className="w-full text-left text-xs font-mono">
                       <thead className="bg-[#1a1f2b] text-neutral-400 uppercase text-[11px] border-b border-[#262e3f] select-none">
                         <tr>
-                          <th className="px-3 py-2.5 text-center">Pick</th>
+                          <th className="px-3 py-2.5 text-center">
+                            <Tooltip text="Pick Badge:&#10;Identifies whether this item is an active allocated pick in your overnight bag or an alternative candidate.">
+                              <span>Pick</span>
+                            </Tooltip>
+                          </th>
                           <th onClick={() => toggleSortOvernight('name')} className="px-3 py-2.5 cursor-pointer hover:text-white">
-                            Item Name {overnightSortCol === 'name' && (overnightSortAsc ? '▲' : '▼')}
+                            <Tooltip text="Item Name:&#10;Grand Exchange item name. Click to copy name to clipboard.">
+                              <span>Item Name {overnightSortCol === 'name' && (overnightSortAsc ? '▲' : '▼')}</span>
+                            </Tooltip>
                           </th>
                           <th onClick={() => toggleSortOvernight('bid')} className="px-3 py-2.5 text-right cursor-pointer hover:text-white">
-                            Optimal Bid {overnightSortCol === 'bid' && (overnightSortAsc ? '▲' : '▼')}
+                            <Tooltip text="Optimal Bid:&#10;Calculated percentile buy price based on 48h/7d dips. Click to copy price!">
+                              <span>Optimal Bid {overnightSortCol === 'bid' && (overnightSortAsc ? '▲' : '▼')}</span>
+                            </Tooltip>
                           </th>
                           <th onClick={() => toggleSortOvernight('alch')} className="px-3 py-2.5 text-right cursor-pointer hover:text-white">
-                            High Alch {overnightSortCol === 'alch' && (overnightSortAsc ? '▲' : '▼')}
+                            <Tooltip text="High Alch:&#10;High Alchemy value in gold.">
+                              <span>High Alch {overnightSortCol === 'alch' && (overnightSortAsc ? '▲' : '▼')}</span>
+                            </Tooltip>
                           </th>
                           <th onClick={() => toggleSortOvernight('profit_ea')} className="px-3 py-2.5 text-right text-emerald-400 cursor-pointer hover:text-white">
-                            Profit / Ea {overnightSortCol === 'profit_ea' && (overnightSortAsc ? '▲' : '▼')}
+                            <Tooltip text="Profit / Ea:&#10;Net profit per item alched (High Alch - Optimal Bid - Nat Cost).">
+                              <span>Profit / Ea {overnightSortCol === 'profit_ea' && (overnightSortAsc ? '▲' : '▼')}</span>
+                            </Tooltip>
                           </th>
                           <th onClick={() => toggleSortOvernight('period_limit')} className="px-3 py-2.5 text-center cursor-pointer hover:text-white">
-                            Period Limit {overnightSortCol === 'period_limit' && (overnightSortAsc ? '▲' : '▼')}
+                            <Tooltip text="Period Limit:&#10;Total Grand Exchange buy limit over your selected sleep duration.">
+                              <span>Period Limit {overnightSortCol === 'period_limit' && (overnightSortAsc ? '▲' : '▼')}</span>
+                            </Tooltip>
                           </th>
                           <th onClick={() => toggleSortOvernight('alloc_qty')} className="px-3 py-2.5 text-center cursor-pointer hover:text-white">
-                            Allocated Qty {overnightSortCol === 'alloc_qty' && (overnightSortAsc ? '▲' : '▼')}
+                            <Tooltip text="Allocated Qty:&#10;Optimal quantity to buy with your cash stack. Click to copy quantity!">
+                              <span>Allocated Qty {overnightSortCol === 'alloc_qty' && (overnightSortAsc ? '▲' : '▼')}</span>
+                            </Tooltip>
                           </th>
                           <th onClick={() => toggleSortOvernight('total_cost')} className="px-3 py-2.5 text-right cursor-pointer hover:text-white">
-                            Total Spend {overnightSortCol === 'total_cost' && (overnightSortAsc ? '▲' : '▼')}
+                            <Tooltip text="Total Spend:&#10;Total gold required to purchase the allocated quantity.">
+                              <span>Total Spend {overnightSortCol === 'total_cost' && (overnightSortAsc ? '▲' : '▼')}</span>
+                            </Tooltip>
                           </th>
                           <th onClick={() => toggleSortOvernight('slot_profit')} className="px-3 py-2.5 text-right text-amber-400 cursor-pointer hover:text-white">
-                            Expected Profit {overnightSortCol === 'slot_profit' && (overnightSortAsc ? '▲' : '▼')}
+                            <Tooltip text="Expected Profit:&#10;Total gold profit earned once all units are bought and alched.">
+                              <span>Expected Profit {overnightSortCol === 'slot_profit' && (overnightSortAsc ? '▲' : '▼')}</span>
+                            </Tooltip>
                           </th>
                           <th onClick={() => toggleSortOvernight('conf')} className="px-3 py-2.5 text-center cursor-pointer hover:text-white">
-                            Fill Confidence {overnightSortCol === 'conf' && (overnightSortAsc ? '▲' : '▼')}
+                            <Tooltip text="Fill Confidence:&#10;Likelihood of the buy offer filling before morning based on historical 24h & 48h volume.">
+                              <span>Fill Confidence {overnightSortCol === 'conf' && (overnightSortAsc ? '▲' : '▼')}</span>
+                            </Tooltip>
                           </th>
-                          <th className="px-3 py-2.5 min-w-[220px]">Night Market Analysis</th>
+                          <th className="px-3 py-2.5 min-w-[220px]">
+                            <Tooltip text="Night Market Analysis:&#10;Detailed rationale based on 48h/7d timeseries market behavior.">
+                              <span>Night Market Analysis</span>
+                            </Tooltip>
+                          </th>
                           <th className="px-3 py-2.5 text-center">Action</th>
                         </tr>
                       </thead>
@@ -3373,33 +3546,55 @@ export default function Dashboard() {
                       <thead className="bg-[#1a1f2b] text-neutral-400 uppercase text-[11px] border-b border-[#262e3f] select-none">
                         <tr>
                           <th onClick={() => toggleSortW308('name')} className="px-3 py-2.5 cursor-pointer hover:text-white">
-                            Bulk Item {w308SortCol === 'name' && (w308SortAsc ? '▲' : '▼')}
+                            <Tooltip text="Bulk Item:&#10;Name of the bulk tradeable alchable item. Double-click row to load into Anti-Scam Validator!">
+                              <span>Bulk Item {w308SortCol === 'name' && (w308SortAsc ? '▲' : '▼')}</span>
+                            </Tooltip>
                           </th>
                           <th onClick={() => toggleSortW308('trade_price')} className="px-3 py-2.5 text-right cursor-pointer hover:text-white">
-                            {w308Role === 'buyer' ? 'W308 Buy (ea)' : 'W308 Sell (ea)'} {w308SortCol === 'trade_price' && (w308SortAsc ? '▲' : '▼')}
+                            <Tooltip text="W308 Buy/Sell (ea):&#10;Standard community benchmark trade price in World 308 Varrock West Bank.">
+                              <span>{w308Role === 'buyer' ? 'W308 Buy (ea)' : 'W308 Sell (ea)'} {w308SortCol === 'trade_price' && (w308SortAsc ? '▲' : '▼')}</span>
+                            </Tooltip>
                           </th>
                           <th onClick={() => toggleSortW308('ge_price')} className="px-3 py-2.5 text-right cursor-pointer hover:text-white">
-                            GE Instant {w308SortCol === 'ge_price' && (w308SortAsc ? '▲' : '▼')}
+                            <Tooltip text="GE Instant (ea):&#10;Instant buy (Ask) price on the Grand Exchange. Demonstrates your savings buying bulk direct!">
+                              <span>GE Instant {w308SortCol === 'ge_price' && (w308SortAsc ? '▲' : '▼')}</span>
+                            </Tooltip>
                           </th>
                           <th onClick={() => toggleSortW308('alch')} className="px-3 py-2.5 text-right cursor-pointer hover:text-white">
-                            High Alch {w308SortCol === 'alch' && (w308SortAsc ? '▲' : '▼')}
+                            <Tooltip text="High Alch:&#10;Fixed gold payout per item when cast with High Alchemy.">
+                              <span>High Alch {w308SortCol === 'alch' && (w308SortAsc ? '▲' : '▼')}</span>
+                            </Tooltip>
                           </th>
                           <th onClick={() => toggleSortW308('profit_ea')} className="px-3 py-2.5 text-right text-emerald-400 cursor-pointer hover:text-white">
-                            Profit / Ea {w308SortCol === 'profit_ea' && (w308SortAsc ? '▲' : '▼')}
+                            <Tooltip text="Profit / Ea:&#10;Net profit per item alched = High Alch - W308 Buy - Nature Rune Cost.">
+                              <span>Profit / Ea {w308SortCol === 'profit_ea' && (w308SortAsc ? '▲' : '▼')}</span>
+                            </Tooltip>
                           </th>
                           <th onClick={() => toggleSortW308('margin_pct')} className="px-3 py-2.5 text-right cursor-pointer hover:text-white">
-                            Margin % {w308SortCol === 'margin_pct' && (w308SortAsc ? '▲' : '▼')}
+                            <Tooltip text="Margin %:&#10;Profit percentage relative to your capital outlay.">
+                              <span>Margin % {w308SortCol === 'margin_pct' && (w308SortAsc ? '▲' : '▼')}</span>
+                            </Tooltip>
                           </th>
                           <th onClick={() => toggleSortW308('max_stack')} className="px-3 py-2.5 text-center cursor-pointer hover:text-white">
-                            Max Stack {w308SortCol === 'max_stack' && (w308SortAsc ? '▲' : '▼')}
+                            <Tooltip text="Max Stack (Budget):&#10;Maximum quantity you can purchase with your current active cash stack without GE limits!">
+                              <span>Max Stack {w308SortCol === 'max_stack' && (w308SortAsc ? '▲' : '▼')}</span>
+                            </Tooltip>
                           </th>
                           <th onClick={() => toggleSortW308('total_spend')} className="px-3 py-2.5 text-right cursor-pointer hover:text-white">
-                            Total Spend {w308SortCol === 'total_spend' && (w308SortAsc ? '▲' : '▼')}
+                            <Tooltip text="Total Spend:&#10;Total gold required to purchase the max stack.">
+                              <span>Total Spend {w308SortCol === 'total_spend' && (w308SortAsc ? '▲' : '▼')}</span>
+                            </Tooltip>
                           </th>
                           <th onClick={() => toggleSortW308('expected_profit')} className="px-3 py-2.5 text-right text-amber-400 cursor-pointer hover:text-white">
-                            Expected Profit {w308SortCol === 'expected_profit' && (w308SortAsc ? '▲' : '▼')}
+                            <Tooltip text="Expected Profit:&#10;Total gold profit earned once all units are purchased and alched.">
+                              <span>Expected Profit {w308SortCol === 'expected_profit' && (w308SortAsc ? '▲' : '▼')}</span>
+                            </Tooltip>
                           </th>
-                          <th className="px-3 py-2.5 text-center">Chat Ad Copy</th>
+                          <th className="px-3 py-2.5 text-center">
+                            <Tooltip text="Chat Ad Copy:&#10;Ready-to-use chat spam message. Click cell to copy directly to your clipboard!">
+                              <span>Chat Ad Copy</span>
+                            </Tooltip>
+                          </th>
                           <th className="px-3 py-2.5 text-center">Action</th>
                         </tr>
                       </thead>
@@ -3534,36 +3729,60 @@ export default function Dashboard() {
                     <table className="w-full text-left text-xs font-mono">
                       <thead className="bg-[#1a1f2b] text-neutral-400 uppercase text-[11px] border-b border-[#262e3f] select-none">
                         <tr>
-                          <th className="px-3 py-2.5 text-center">Rank</th>
+                          <th className="px-3 py-2.5 text-center">
+                            <Tooltip text="Rank & Badge:&#10;Rank position within this recommendation list.">
+                              <span>Rank</span>
+                            </Tooltip>
+                          </th>
                           <th onClick={() => toggleSortRec('name')} className="px-3 py-2.5 cursor-pointer hover:text-white">
-                            Item Name {recSortCol === 'name' && (recSortAsc ? '▲' : '▼')}
+                            <Tooltip text="Item Name:&#10;Grand Exchange item name. Click to copy name to clipboard.">
+                              <span>Item Name {recSortCol === 'name' && (recSortAsc ? '▲' : '▼')}</span>
+                            </Tooltip>
                           </th>
                           <th onClick={() => toggleSortRec('category')} className="px-3 py-2.5 text-center cursor-pointer hover:text-white">
-                            Category {recSortCol === 'category' && (recSortAsc ? '▲' : '▼')}
+                            <Tooltip text="Category:&#10;Strategy category: All-Time Workhorse, Fast Fill, Batch Profit, or Overnight Sleeper.">
+                              <span>Category {recSortCol === 'category' && (recSortAsc ? '▲' : '▼')}</span>
+                            </Tooltip>
                           </th>
                           <th onClick={() => toggleSortRec('target_bid')} className="px-3 py-2.5 text-right cursor-pointer hover:text-white">
-                            Target Bid {recSortCol === 'target_bid' && (recSortAsc ? '▲' : '▼')}
+                            <Tooltip text="Target Bid:&#10;Best buy offer price. Click to copy.">
+                              <span>Target Bid {recSortCol === 'target_bid' && (recSortAsc ? '▲' : '▼')}</span>
+                            </Tooltip>
                           </th>
                           <th onClick={() => toggleSortRec('alch_val')} className="px-3 py-2.5 text-right cursor-pointer hover:text-white">
-                            Alch Value {recSortCol === 'alch_val' && (recSortAsc ? '▲' : '▼')}
+                            <Tooltip text="Alch Value:&#10;High Alchemy gold value.">
+                              <span>Alch Value {recSortCol === 'alch_val' && (recSortAsc ? '▲' : '▼')}</span>
+                            </Tooltip>
                           </th>
                           <th onClick={() => toggleSortRec('profit_ea')} className="px-3 py-2.5 text-right text-emerald-400 cursor-pointer hover:text-white">
-                            Profit / Alch {recSortCol === 'profit_ea' && (recSortAsc ? '▲' : '▼')}
+                            <Tooltip text="Profit / Alch:&#10;Net gold profit per High Alch cast (Alch Value - Buy Price - Nature Rune Cost).">
+                              <span>Profit / Alch {recSortCol === 'profit_ea' && (recSortAsc ? '▲' : '▼')}</span>
+                            </Tooltip>
                           </th>
                           <th onClick={() => toggleSortRec('limit')} className="px-3 py-2.5 text-center cursor-pointer hover:text-white">
-                            4h Limit {recSortCol === 'limit' && (recSortAsc ? '▲' : '▼')}
+                            <Tooltip text="4h GE Buy Limit:&#10;Maximum Grand Exchange units purchasable every 4 hours.">
+                              <span>4h Limit {recSortCol === 'limit' && (recSortAsc ? '▲' : '▼')}</span>
+                            </Tooltip>
                           </th>
                           <th onClick={() => toggleSortRec('batch_profit')} className="px-3 py-2.5 text-right text-amber-400 cursor-pointer hover:text-white">
-                            4h Batch Profit {recSortCol === 'batch_profit' && (recSortAsc ? '▲' : '▼')}
+                            <Tooltip text="4h Batch Profit:&#10;Total profit earned for a full 4h limit batch (Profit ea * Available limit).">
+                              <span>4h Batch Profit {recSortCol === 'batch_profit' && (recSortAsc ? '▲' : '▼')}</span>
+                            </Tooltip>
                           </th>
                           <th onClick={() => toggleSortRec('speed')} className="px-3 py-2.5 text-center cursor-pointer hover:text-white">
-                            Fill Speed {recSortCol === 'speed' && (recSortAsc ? '▲' : '▼')}
+                            <Tooltip text="Fill Speed:&#10;Live transaction velocity badge (⚡ Fast, ⏱️ Steady, 🐢 Slow).">
+                              <span>Fill Speed {recSortCol === 'speed' && (recSortAsc ? '▲' : '▼')}</span>
+                            </Tooltip>
                           </th>
                           <th onClick={() => toggleSortRec('batch_cost')} className="px-3 py-2.5 text-right cursor-pointer hover:text-white">
-                            Batch Spend {recSortCol === 'batch_cost' && (recSortAsc ? '▲' : '▼')}
+                            <Tooltip text="Batch Spend:&#10;Total gold required to purchase a full batch of this item.">
+                              <span>Batch Spend {recSortCol === 'batch_cost' && (recSortAsc ? '▲' : '▼')}</span>
+                            </Tooltip>
                           </th>
                           <th onClick={() => toggleSortRec('verdict')} className="px-3 py-2.5 cursor-pointer hover:text-white min-w-[200px]">
-                            Why Buy? / Verdict {recSortCol === 'verdict' && (recSortAsc ? '▲' : '▼')}
+                            <Tooltip text="Why Buy? / Verdict:&#10;Strategic summary explaining why this item is recommended.">
+                              <span>Why Buy? / Verdict {recSortCol === 'verdict' && (recSortAsc ? '▲' : '▼')}</span>
+                            </Tooltip>
                           </th>
                           <th className="px-3 py-2.5 text-center">Action</th>
                         </tr>
@@ -3575,7 +3794,7 @@ export default function Dashboard() {
                           <tr
                             key={row.id}
                             onDoubleClick={() => handleToggleCart({ id: row.id, name: row.name, buy_price: row.target_bid, buy_limit: row.limit, profit: row.profit_ea })}
-                            className="hover:bg-[#1a202c]/60 transition-colors cursor-pointer"
+                            onContextMenu={(e) => handleContextMenu(e, 'rec', row)} className="hover:bg-[#1a202c]/60 transition-colors cursor-pointer select-none"
                           >
                             <td className="px-3 py-2.5 text-center font-bold text-neutral-500">
                               #{idx + 1}
@@ -3864,18 +4083,66 @@ export default function Dashboard() {
                     <table className="w-full text-left text-xs font-mono">
                       <thead className="bg-[#1a1f2b] text-neutral-400 uppercase text-[10px] border-b border-[#262e3f] select-none">
                         <tr>
-                          <th className="px-3 py-2.5 text-center">Exp</th>
-                          <th className="px-3 py-2.5">Recipe / Product</th>
-                          <th className="px-3 py-2.5">Skill / Req</th>
-                          <th className="px-3 py-2.5 text-right" title="GE net revenue after 2% tax">GE Net (2% tax)</th>
-                          <th className="px-3 py-2.5 text-right" title="Total ingredient cost">Mat Cost</th>
-                          <th className="px-3 py-2.5 text-right text-emerald-400" title="Net profit per single crafting action">Profit / Ea</th>
-                          <th className="px-3 py-2.5 text-right" title="Return on material investment">ROI %</th>
-                          <th className="px-3 py-2.5 text-center" title="4-hour Grand Exchange limit">Limit</th>
-                          <th className="px-3 py-2.5 text-right text-amber-400" title="Profit across full 4h limit">Batch Profit</th>
-                          <th className="px-3 py-2.5 text-right text-emerald-300" title="Hourly profit rate at standard actions/hr">Hourly Profit</th>
-                          <th className="px-3 py-2.5 text-center" title="Trading velocity">Fill Speed</th>
-                          <th className="px-3 py-2.5 text-right" title="Experience gained per hour">XP Rate</th>
+                          <th className="px-3 py-2.5 text-center">
+                            <Tooltip text="Ingredient Breakdown:&#10;Click [▶] or double-click row to expand materials and see individual ingredient costs.">
+                              <span>Exp</span>
+                            </Tooltip>
+                          </th>
+                          <th className="px-3 py-2.5">
+                            <Tooltip text="Finished Item / Product:&#10;Grand Exchange product created from raw materials.">
+                              <span>Recipe / Product</span>
+                            </Tooltip>
+                          </th>
+                          <th className="px-3 py-2.5">
+                            <Tooltip text="Skill & Requirement:&#10;Skill category and minimum level required to craft this item.">
+                              <span>Skill / Req</span>
+                            </Tooltip>
+                          </th>
+                          <th className="px-3 py-2.5 text-right">
+                            <Tooltip text="Target Sell Price:&#10;The exact price you should list this item for on the Grand Exchange (Net profit already deducts 2% GE tax).">
+                              <span>GE Net (2% tax)</span>
+                            </Tooltip>
+                          </th>
+                          <th className="px-3 py-2.5 text-right">
+                            <Tooltip text="Materials Cost:&#10;Total purchase cost of raw materials needed to craft one item.">
+                              <span>Mat Cost</span>
+                            </Tooltip>
+                          </th>
+                          <th className="px-3 py-2.5 text-right text-emerald-400">
+                            <Tooltip text="Profit ea:&#10;Net gold profit per craft (Net GE Sale Revenue - Total Material Cost).">
+                              <span>Profit / Ea</span>
+                            </Tooltip>
+                          </th>
+                          <th className="px-3 py-2.5 text-right">
+                            <Tooltip text="Return on Investment (ROI %):&#10;Profit margin percentage relative to total material cost.">
+                              <span>ROI %</span>
+                            </Tooltip>
+                          </th>
+                          <th className="px-3 py-2.5 text-center">
+                            <Tooltip text="4h GE Buy Limit:&#10;Grand Exchange buy limit of the limiting raw material.">
+                              <span>Limit</span>
+                            </Tooltip>
+                          </th>
+                          <th className="px-3 py-2.5 text-right text-amber-400">
+                            <Tooltip text="4h Batch Profit:&#10;Total gold profit earned for crafting a full 4-hour limit batch.">
+                              <span>Batch Profit</span>
+                            </Tooltip>
+                          </th>
+                          <th className="px-3 py-2.5 text-right text-emerald-300">
+                            <Tooltip text="Profit / Hr:&#10;Estimated hourly gold profit based on standard game action velocity.">
+                              <span>Hourly Profit</span>
+                            </Tooltip>
+                          </th>
+                          <th className="px-3 py-2.5 text-center">
+                            <Tooltip text="Fill Speed:&#10;Market transaction speed badge (⚡ Fast, ⏱️ Steady, 🐢 Slow).">
+                              <span>Fill Speed</span>
+                            </Tooltip>
+                          </th>
+                          <th className="px-3 py-2.5 text-right">
+                            <Tooltip text="XP (ea & /hr):&#10;Experience granted per craft and estimated XP/hr rate.">
+                              <span>XP Rate</span>
+                            </Tooltip>
+                          </th>
                           <th className="px-3 py-2.5 text-center">Action</th>
                         </tr>
                       </thead>
@@ -3887,7 +4154,7 @@ export default function Dashboard() {
                             <React.Fragment key={idx}>
                               <tr
                                 onClick={() => setExpandedCraftRows(prev => ({ ...prev, [r.name]: !prev[r.name] }))}
-                                className={`hover:bg-[#1a202c]/70 transition-colors cursor-pointer ${isExpanded ? 'bg-[#1a2233]' : ''}`}
+                                onContextMenu={(e) => handleContextMenu(e, 'craft', r)} onDoubleClick={() => setExpandedCraftRows(prev => ({ ...prev, [r.name]: !prev[r.name] }))} className={`hover:bg-[#1a202c]/70 transition-colors cursor-pointer select-none ${isExpanded ? 'bg-[#1a2233]' : ''}`}
                               >
                                 <td className="px-3 py-2.5 text-center text-neutral-400">
                                   {isExpanded ? <ChevronDown className="w-3.5 h-3.5 inline text-amber-400" /> : <ChevronRight className="w-3.5 h-3.5 inline" />}
@@ -4079,18 +4346,66 @@ export default function Dashboard() {
                     <table className="w-full text-left text-xs font-mono">
                       <thead className="bg-[#1a1f2b] text-neutral-400 uppercase text-[10px] border-b border-[#262e3f] select-none">
                         <tr>
-                          <th className="px-3 py-2.5 text-center">Exp</th>
-                          <th className="px-3 py-2.5">Recipe / Product</th>
-                          <th className="px-3 py-2.5">Skill / Req</th>
-                          <th className="px-3 py-2.5 text-right" title="High Alchemy gold value">High Alch</th>
-                          <th className="px-3 py-2.5 text-right" title="Total ingredient cost">Mat Cost</th>
-                          <th className="px-3 py-2.5 text-right text-emerald-400" title="Craft + High Alch net profit per item">Profit / Ea</th>
-                          <th className="px-3 py-2.5 text-right" title="Extra profit earned vs buying the finished item">Bonus vs Buy</th>
-                          <th className="px-3 py-2.5 text-right" title="Return on material investment">ROI %</th>
-                          <th className="px-3 py-2.5 text-center" title="4-hour Grand Exchange limit">Limit</th>
-                          <th className="px-3 py-2.5 text-right text-amber-400" title="Profit across full 4h limit">Batch Profit</th>
-                          <th className="px-3 py-2.5 text-right text-emerald-300" title="Hourly profit rate at standard actions/hr">Hourly Profit</th>
-                          <th className="px-3 py-2.5 text-right" title="Experience gained per hour">XP Rate</th>
+                          <th className="px-3 py-2.5 text-center">
+                            <Tooltip text="Ingredient Breakdown:&#10;Click [▶] to see required raw materials breakdown.">
+                              <span>Exp</span>
+                            </Tooltip>
+                          </th>
+                          <th className="px-3 py-2.5">
+                            <Tooltip text="Item to create:&#10;Click item name to copy to clipboard.">
+                              <span>Recipe / Product</span>
+                            </Tooltip>
+                          </th>
+                          <th className="px-3 py-2.5">
+                            <Tooltip text="Skill & Req:&#10;Skill and minimum level required to craft this item.">
+                              <span>Skill / Req</span>
+                            </Tooltip>
+                          </th>
+                          <th className="px-3 py-2.5 text-right">
+                            <Tooltip text="Alch Value:&#10;High Alchemy gold value returned upon casting.">
+                              <span>High Alch</span>
+                            </Tooltip>
+                          </th>
+                          <th className="px-3 py-2.5 text-right">
+                            <Tooltip text="Materials Cost:&#10;Total purchase cost of raw materials needed to craft one item.">
+                              <span>Mat Cost</span>
+                            </Tooltip>
+                          </th>
+                          <th className="px-3 py-2.5 text-right text-emerald-400">
+                            <Tooltip text="Profit (Craft + Alch):&#10;Total profit earned by buying raw materials, crafting, and alching the finished item.">
+                              <span>Profit / Ea</span>
+                            </Tooltip>
+                          </th>
+                          <th className="px-3 py-2.5 text-right">
+                            <Tooltip text="Bonus vs Buying Finished:&#10;Extra profit gained compared to buying the finished item directly on the GE.">
+                              <span>Bonus vs Buy</span>
+                            </Tooltip>
+                          </th>
+                          <th className="px-3 py-2.5 text-right">
+                            <Tooltip text="Return on material investment.">
+                              <span>ROI %</span>
+                            </Tooltip>
+                          </th>
+                          <th className="px-3 py-2.5 text-center">
+                            <Tooltip text="4-hour Grand Exchange limit.">
+                              <span>Limit</span>
+                            </Tooltip>
+                          </th>
+                          <th className="px-3 py-2.5 text-right text-amber-400">
+                            <Tooltip text="Profit across full 4h limit.">
+                              <span>Batch Profit</span>
+                            </Tooltip>
+                          </th>
+                          <th className="px-3 py-2.5 text-right text-emerald-300">
+                            <Tooltip text="Est Craft+Alch GP/Hr:&#10;Projected hourly profit accounting for crafting + alching speed.">
+                              <span>Hourly Profit</span>
+                            </Tooltip>
+                          </th>
+                          <th className="px-3 py-2.5 text-right">
+                            <Tooltip text="Experience gained per hour.">
+                              <span>XP Rate</span>
+                            </Tooltip>
+                          </th>
                           <th className="px-3 py-2.5 text-center">Action</th>
                         </tr>
                       </thead>
@@ -4102,7 +4417,7 @@ export default function Dashboard() {
                             <React.Fragment key={idx}>
                               <tr
                                 onClick={() => setExpandedCraftRows(prev => ({ ...prev, [r.name]: !prev[r.name] }))}
-                                className={`hover:bg-[#1a202c]/70 transition-colors cursor-pointer ${isExpanded ? 'bg-[#1a2233]' : ''}`}
+                                onContextMenu={(e) => handleContextMenu(e, 'craft', r)} onDoubleClick={() => setExpandedCraftRows(prev => ({ ...prev, [r.name]: !prev[r.name] }))} className={`hover:bg-[#1a202c]/70 transition-colors cursor-pointer select-none ${isExpanded ? 'bg-[#1a2233]' : ''}`}
                               >
                                 <td className="px-3 py-2.5 text-center text-neutral-400">
                                   {isExpanded ? <ChevronDown className="w-3.5 h-3.5 inline text-amber-400" /> : <ChevronRight className="w-3.5 h-3.5 inline" />}
@@ -4565,19 +4880,71 @@ export default function Dashboard() {
                           <table className="w-full text-xs text-left">
                             <thead className="bg-[#0f1219] text-neutral-400 uppercase text-[10px] font-mono border-b border-[#242b3b]">
                               <tr>
-                                <th className="px-3 py-3" title="Bracket completion status relative to your current level">Status</th>
-                                <th className="px-3 py-3" title="Skill level bracket range">Level</th>
-                                <th className="px-3 py-3" title="Crafting recipe or quest method name and speed">Method / Item</th>
-                                <th className="px-3 py-3 text-right" title="XP gained per individual crafting action">XP/Act</th>
-                                <th className="px-3 py-3 text-right" title="Actions required to complete this bracket or your goal">Actions</th>
-                                <th className="px-3 py-3" title="Ingredients required per action and total batch">Materials Required</th>
-                                <th className="px-3 py-3 text-right" title="Live GE market cost of ingredients per action">Mat Cost</th>
-                                <th className="px-3 py-3" title="Most profitable liquidation route (W308, High Alch, GE Sell, Consume)">Best Disposal</th>
-                                <th className="px-3 py-3 text-right" title="Net profit (+) or loss (-) per experience point gained">GP/XP</th>
-                                <th className="px-3 py-3 text-right" title="Total net GP profit or cost for this level bracket">Bracket Cost</th>
-                                <th className="px-3 py-3 text-right" title="Maximum primary material buy price to avoid losing GP">Max Mat Price</th>
-                                <th className="px-3 py-3 text-right" title="Estimated time to complete based on standard actions/hr">Time Est.</th>
-                                <th className="px-3 py-3" title="Strategic efficiency tips and guide commentary">Verdict / Tip</th>
+                                <th className="px-3 py-3">
+                                  <Tooltip text="Status:&#10;📍 YOU ARE HERE (Current training step)&#10;✅ Completed (Already passed)&#10;🔒 Locked (Requires higher level).">
+                                    <span>Status</span>
+                                  </Tooltip>
+                                </th>
+                                <th className="px-3 py-3">
+                                  <Tooltip text="Level Range:&#10;Recommended level bracket for this skilling method.">
+                                    <span>Level</span>
+                                  </Tooltip>
+                                </th>
+                                <th className="px-3 py-3">
+                                  <Tooltip text="Training Method / Item:&#10;Double-click to inspect in Sale Price Inspector! Right-click for options.">
+                                    <span>Method / Item</span>
+                                  </Tooltip>
+                                </th>
+                                <th className="px-3 py-3 text-right">
+                                  <Tooltip text="XP / Act:&#10;Experience granted per single crafted/smithed action.">
+                                    <span>XP/Act</span>
+                                  </Tooltip>
+                                </th>
+                                <th className="px-3 py-3 text-right">
+                                  <Tooltip text="Actions Needed:&#10;Actions required to complete this bracket or reach your target level.">
+                                    <span>Actions</span>
+                                  </Tooltip>
+                                </th>
+                                <th className="px-3 py-3">
+                                  <Tooltip text="Materials Needed:&#10;Raw ingredients required per single action and total bracket batch.">
+                                    <span>Materials Required</span>
+                                  </Tooltip>
+                                </th>
+                                <th className="px-3 py-3 text-right">
+                                  <Tooltip text="Live Material Cost:&#10;Live Grand Exchange purchase cost of raw materials per action.">
+                                    <span>Mat Cost</span>
+                                  </Tooltip>
+                                </th>
+                                <th className="px-3 py-3">
+                                  <Tooltip text="Best Disposal:&#10;Optimal disposal route: 🪄 High Alch vs 🏪 Sell on GE vs 📜 Quest Turn-in.">
+                                    <span>Best Disposal</span>
+                                  </Tooltip>
+                                </th>
+                                <th className="px-3 py-3 text-right">
+                                  <Tooltip text="Live GP/XP:&#10;Net gold profit (+) or cost (-) per experience point gained.">
+                                    <span>GP/XP</span>
+                                  </Tooltip>
+                                </th>
+                                <th className="px-3 py-3 text-right">
+                                  <Tooltip text="Bracket Cost / Profit:&#10;Total projected gold profit or loss to complete all needed units in bracket.">
+                                    <span>Bracket Cost</span>
+                                  </Tooltip>
+                                </th>
+                                <th className="px-3 py-3 text-right">
+                                  <Tooltip text="🎯 Max Mat Buy:&#10;Maximum GE buy price to pay for raw materials to break even.">
+                                    <span>Max Mat Price</span>
+                                  </Tooltip>
+                                </th>
+                                <th className="px-3 py-3 text-right">
+                                  <Tooltip text="Est. Time:&#10;Projected grind time to finish bracket at standard XP/hr rates.">
+                                    <span>Time Est.</span>
+                                  </Tooltip>
+                                </th>
+                                <th className="px-3 py-3">
+                                  <Tooltip text="Strategy Tips / Verdict:&#10;Pro tips, quest skips, and strategy breakdown.">
+                                    <span>Verdict / Tip</span>
+                                  </Tooltip>
+                                </th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-[#1e2433]">
@@ -4603,7 +4970,9 @@ export default function Dashboard() {
                                   return (
                                     <tr
                                       key={idx}
-                                      className={`hover:bg-[#1a202c] transition-colors ${
+                                      onContextMenu={(e) => handleContextMenu(e, 'guide', b)}
+                                      onDoubleClick={() => { setInspItemName(b.name || b.wiki_slug); setGuideViewMode('sale_inspector'); showToast(`💰 Loaded ${b.name} into Sale Price Inspector!`); }}
+                                      className={`hover:bg-[#1a202c] transition-colors cursor-pointer select-none ${
                                         metrics.isCurrent ? 'bg-amber-500/5 border-l-2 border-l-amber-500' : metrics.isCompleted ? 'opacity-60' : ''
                                       }`}
                                     >
@@ -4767,16 +5136,56 @@ export default function Dashboard() {
                                 <table className="w-full text-xs text-left">
                                   <thead className="bg-[#0f1219] text-neutral-400 uppercase text-[10px] font-mono border-b border-[#242b3b]">
                                     <tr>
-                                      <th className="px-3 py-2.5">Smithable Item</th>
-                                      <th className="px-3 py-2.5 text-center">Req Lvl</th>
-                                      <th className="px-3 py-2.5 text-center">Bars</th>
-                                      <th className="px-3 py-2.5 text-right">Smith XP</th>
-                                      <th className="px-3 py-2.5 text-right">Bar Cost</th>
-                                      <th className="px-3 py-2.5 text-right">GE Net (2% tax)</th>
-                                      <th className="px-3 py-2.5 text-right">High Alch Net</th>
-                                      <th className="px-3 py-2.5 text-right">Best Profit / Item</th>
-                                      <th className="px-3 py-2.5 text-right">Profit / Bar</th>
-                                      <th className="px-3 py-2.5 text-right">GP/XP</th>
+                                      <th className="px-3 py-2.5">
+                                        <Tooltip text="Smithable Item:&#10;Finished smithed metal item.">
+                                          <span>Smithable Item</span>
+                                        </Tooltip>
+                                      </th>
+                                      <th className="px-3 py-2.5 text-center">
+                                        <Tooltip text="Required Smithing Level.">
+                                          <span>Req Lvl</span>
+                                        </Tooltip>
+                                      </th>
+                                      <th className="px-3 py-2.5 text-center">
+                                        <Tooltip text="Metal bars consumed per item.">
+                                          <span>Bars</span>
+                                        </Tooltip>
+                                      </th>
+                                      <th className="px-3 py-2.5 text-right">
+                                        <Tooltip text="Smithing experience granted upon creation.">
+                                          <span>Smith XP</span>
+                                        </Tooltip>
+                                      </th>
+                                      <th className="px-3 py-2.5 text-right">
+                                        <Tooltip text="Total market cost of bars consumed.">
+                                          <span>Bar Cost</span>
+                                        </Tooltip>
+                                      </th>
+                                      <th className="px-3 py-2.5 text-right">
+                                        <Tooltip text="Net proceeds if sold on GE after 2% tax.">
+                                          <span>GE Net (2% tax)</span>
+                                        </Tooltip>
+                                      </th>
+                                      <th className="px-3 py-2.5 text-right">
+                                        <Tooltip text="Net gold returned by High Alchemy spell.">
+                                          <span>High Alch Net</span>
+                                        </Tooltip>
+                                      </th>
+                                      <th className="px-3 py-2.5 text-right">
+                                        <Tooltip text="Best Profit / Item:&#10;Net profit choosing best liquidation method.">
+                                          <span>Best Profit / Item</span>
+                                        </Tooltip>
+                                      </th>
+                                      <th className="px-3 py-2.5 text-right">
+                                        <Tooltip text="Profit / Bar:&#10;Profit yielded per single metal bar.">
+                                          <span>Profit / Bar</span>
+                                        </Tooltip>
+                                      </th>
+                                      <th className="px-3 py-2.5 text-right">
+                                        <Tooltip text="Net profit (+) or loss (-) per smithing XP point.">
+                                          <span>GP/XP</span>
+                                        </Tooltip>
+                                      </th>
                                     </tr>
                                   </thead>
                                   <tbody className="divide-y divide-[#1e2433]">
@@ -5358,12 +5767,36 @@ export default function Dashboard() {
                 <table className="w-full text-left text-xs font-mono">
                   <thead className="bg-[#1a1f2b] text-neutral-400 uppercase text-[11px] border-b border-[#262e3f]">
                     <tr>
-                      <th className="px-3 py-2.5">Daily Alch Time</th>
-                      <th className="px-3 py-2.5 text-center">14-Day Hours</th>
-                      <th className="px-3 py-2.5 text-right">Gross P2P Revenue</th>
-                      <th className="px-3 py-2.5 text-center">Next Bond Paid?</th>
-                      <th className="px-3 py-2.5 text-right text-emerald-400">14-Day Bank Surplus</th>
-                      <th className="px-4 py-2.5">Player Gear &amp; Wealth Milestone</th>
+                      <th className="px-3 py-2.5">
+                        <Tooltip text="Daily Active Alch Time:&#10;How much time you spend High Alching per day in Members.">
+                          <span>Daily Alch Time</span>
+                        </Tooltip>
+                      </th>
+                      <th className="px-3 py-2.5 text-center">
+                        <Tooltip text="14-Day Total Hours:&#10;Cumulative alching hours across the full 14-day membership period.">
+                          <span>14-Day Hours</span>
+                        </Tooltip>
+                      </th>
+                      <th className="px-3 py-2.5 text-right">
+                        <Tooltip text="Gross P2P Revenue:&#10;Total gold earned at conservative P2P alching rate of ~1.2M gp/hr.">
+                          <span>Gross P2P Revenue</span>
+                        </Tooltip>
+                      </th>
+                      <th className="px-3 py-2.5 text-center">
+                        <Tooltip text="Next Bond Paid:&#10;Whether the 14-day earnings completely pay off the next 14-day Bond.">
+                          <span>Next Bond Paid?</span>
+                        </Tooltip>
+                      </th>
+                      <th className="px-3 py-2.5 text-right text-emerald-400">
+                        <Tooltip text="14-Day Bank Surplus:&#10;Net profit left in your bank AFTER purchasing the next 14-day bond!">
+                          <span>14-Day Bank Surplus</span>
+                        </Tooltip>
+                      </th>
+                      <th className="px-4 py-2.5">
+                        <Tooltip text="Milestones:&#10;Iconic OSRS items you can easily afford with your 14-day surplus gold.">
+                          <span>Player Gear &amp; Wealth Milestone</span>
+                        </Tooltip>
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#1e2433]">
@@ -5414,6 +5847,13 @@ export default function Dashboard() {
                       <Clock className="w-5 h-5 text-amber-400" /> 4-Hour Grand Exchange Buy Limit Timers
                     </h3>
                     <button
+                    onClick={requestNotificationPermission}
+                    className="px-2.5 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition-all bg-[#1a1f2b] text-neutral-300 border-[#2b3548] hover:text-white"
+                    title="Enable desktop browser notifications for timer resets"
+                  >
+                    🔔 Desktop Alerts
+                  </button>
+                  <button
                       onClick={() => {
                         setSoundEnabled(!soundEnabled);
                         showToast(soundEnabled ? '🔇 Timer sound alerts muted' : '🔊 Timer sound alerts enabled');
@@ -5663,6 +6103,34 @@ export default function Dashboard() {
                     >
                       📦 Consolidated Stacks
                     </button>
+
+                    {/* Account Filter */}
+                    <div className="flex items-center gap-1.5 bg-[#1b202c] px-2.5 py-1.5 rounded-lg border border-[#2e374d]">
+                      <span className="text-neutral-400">Account:</span>
+                      <select
+                        value={sessionAccountFilter}
+                        onChange={(e) => setSessionAccountFilter(e.target.value)}
+                        className="bg-transparent text-amber-400 font-bold focus:outline-none cursor-pointer"
+                      >
+                        <option value="all" className="bg-[#1b202c]">All Accounts</option>
+                        {Array.from(new Set(sessionLog.map(s => (s as any).account || 'Default'))).map(acc => (
+                          <option key={acc} value={acc} className="bg-[#1b202c]">{acc}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Day Grouping Toggle */}
+                    <button
+                      onClick={() => setSessionGrouping(sessionGrouping === 'flat' ? 'day' : 'flat')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
+                        sessionGrouping === 'day'
+                          ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                          : 'bg-[#1b202c] text-neutral-400 hover:text-white border-[#2e374d]'
+                      }`}
+                      title="Group entries into Today, Yesterday, and Previous dates"
+                    >
+                      📅 {sessionGrouping === 'day' ? 'Grouped by Day' : 'Flat List'}
+                    </button>
                   </div>
 
                   {/* Actions: Log Manual, Export CSV, Clear */}
@@ -5714,77 +6182,216 @@ export default function Dashboard() {
                         <table className="w-full text-xs text-left">
                           <thead className="bg-[#0f1219] text-neutral-400 uppercase text-[10px] font-mono border-b border-[#242b3b]">
                             <tr>
-                              <th className="px-3 py-3">Time</th>
-                              <th className="px-3 py-3">Item Name</th>
-                              <th className="px-3 py-3">Role / Tag</th>
-                              <th className="px-3 py-3 text-right">Quantity</th>
-                              <th className="px-3 py-3 text-right">Buy Ea</th>
-                              <th className="px-3 py-3 text-right">Total Outlay</th>
-                              <th className="px-3 py-3 text-right">Realized Profit</th>
-                              <th className="px-3 py-3 text-right">Magic XP</th>
+                              <th className="px-3 py-3">
+                                <Tooltip text="Time / Count:&#10;Timestamp when batch was recorded.">
+                                  <span>Time</span>
+                                </Tooltip>
+                              </th>
+                              <th className="px-3 py-3">
+                                <Tooltip text="Item Name:&#10;Name of the alched item. Double-click row to edit!">
+                                  <span>Item Name</span>
+                                </Tooltip>
+                              </th>
+                              <th className="px-3 py-3">
+                                <Tooltip text="Role / Cost-Basis Tag:&#10;Transaction source [GE], [W308], or [P2P].">
+                                  <span>Role / Tag</span>
+                                </Tooltip>
+                              </th>
+                              <th className="px-3 py-3 text-right">
+                                <Tooltip text="Quantity:&#10;Total number of items alched in this batch.">
+                                  <span>Quantity</span>
+                                </Tooltip>
+                              </th>
+                              <th className="px-3 py-3 text-right">
+                                <Tooltip text="Bought At (ea):&#10;Gold price paid per item.">
+                                  <span>Buy Ea</span>
+                                </Tooltip>
+                              </th>
+                              <th className="px-3 py-3 text-right">
+                                <Tooltip text="Total Outlay:&#10;Total gold capital spent to acquire batch.">
+                                  <span>Total Outlay</span>
+                                </Tooltip>
+                              </th>
+                              <th className="px-3 py-3 text-right">
+                                <Tooltip text="Realized Profit:&#10;Net profit earned = (Alch Value - Buy Price - Nat Cost) * Quantity.">
+                                  <span>Realized Profit</span>
+                                </Tooltip>
+                              </th>
+                              <th className="px-3 py-3 text-right">
+                                <Tooltip text="Magic XP:&#10;Total experience earned casting High Alchemy.">
+                                  <span>Magic XP</span>
+                                </Tooltip>
+                              </th>
                               <th className="px-3 py-3 text-center">Action</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-[#1e2433]">
-                            {sessionLog.map((entry) => (
-                              <tr key={entry.id} className="hover:bg-[#191e29] transition-colors font-mono">
-                                <td className="px-3 py-2.5 text-neutral-400 text-[11px]">
-                                  {new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                </td>
-                                <td className="px-3 py-2.5 font-bold font-sans text-white">
-                                  {entry.itemName}
-                                </td>
-                                <td className="px-3 py-2.5">
-                                  <span className={`px-2 py-0.5 rounded text-[10px] font-sans font-bold uppercase ${
-                                    entry.role === 'buyer' 
-                                      ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' 
-                                      : entry.role === 'seller'
-                                      ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
-                                      : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                                  }`}>
-                                    {entry.role === 'buyer' ? 'W308 Buy' : entry.role === 'seller' ? 'W308 Sell' : 'High Alch'}
-                                  </span>
-                                </td>
-                                <td className="px-3 py-2.5 text-right font-bold text-white">
-                                  {entry.qty.toLocaleString()}
-                                </td>
-                                <td className="px-3 py-2.5 text-right text-neutral-300">
-                                  {entry.price.toLocaleString()} gp
-                                </td>
-                                <td className="px-3 py-2.5 text-right text-neutral-300">
-                                  {entry.totalCoins.toLocaleString()} gp
-                                </td>
-                                <td className={`px-3 py-2.5 text-right font-bold ${entry.netProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                  {entry.netProfit >= 0 ? `+${entry.netProfit.toLocaleString()} gp` : `${entry.netProfit.toLocaleString()} gp`}
-                                </td>
-                                <td className="px-3 py-2.5 text-right text-cyan-400">
-                                  +{(entry.magicXp || 0).toLocaleString()}
-                                </td>
-                                <td className="px-3 py-2.5 text-center flex items-center justify-center gap-1.5">
-                                  <button
-                                    onClick={() => setEditSessionModal({ show: true, entryId: entry.id, qty: entry.qty, price: entry.price, itemName: entry.itemName, role: entry.role })}
-                                    title="Edit quantity or buy price"
-                                    className="text-neutral-500 hover:text-cyan-400 transition-colors p-1"
-                                  >
-                                    ✏️
-                                  </button>
-                                  <button
-                                    onClick={() => handleDeleteSessionItem(entry.id)}
-                                    title="Delete entry"
-                                    className="text-neutral-500 hover:text-rose-400 transition-colors p-1"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </td>
-                              </tr>
-                            ))}
+                            {(() => {
+                              const filtered = sessionLog.filter(s => sessionAccountFilter === 'all' || (s as any).account === sessionAccountFilter);
+                              if (filtered.length === 0) {
+                                return (
+                                  <tr>
+                                    <td colSpan={9} className="text-center py-8 text-neutral-500">
+                                      No session entries match the selected account filter.
+                                    </td>
+                                  </tr>
+                                );
+                              }
+
+                              if (sessionGrouping === 'day') {
+                                // Group by Day (Today, Yesterday, Earlier)
+                                const dayGroups: { [key: string]: typeof filtered } = {};
+                                const now = new Date();
+                                const todayStr = now.toISOString().split('T')[0];
+                                const yest = new Date(Date.now() - 86400000);
+                                const yestStr = yest.toISOString().split('T')[0];
+
+                                for (const entry of filtered) {
+                                  const dStr = new Date(entry.timestamp).toISOString().split('T')[0];
+                                  const label = dStr === todayStr ? '📅 Today' : dStr === yestStr ? '📅 Yesterday' : `📅 ${dStr}`;
+                                  if (!dayGroups[label]) dayGroups[label] = [];
+                                  dayGroups[label].push(entry);
+                                }
+
+                                return Object.entries(dayGroups).map(([dayLabel, entries]) => {
+                                  const dayProfit = entries.reduce((s, e) => s + e.netProfit, 0);
+                                  const dayQty = entries.reduce((s, e) => s + e.qty, 0);
+                                  const dayOutlay = entries.reduce((s, e) => s + e.totalCoins, 0);
+
+                                  return (
+                                    <React.Fragment key={dayLabel}>
+                                      <tr className="bg-[#121620] font-sans">
+                                        <td colSpan={9} className="px-3 py-2 text-xs font-bold text-amber-400 border-t border-[#273043]">
+                                          <div className="flex justify-between items-center">
+                                            <span>{dayLabel} ({entries.length} batches)</span>
+                                            <div className="flex gap-4 text-[11px] font-mono font-normal">
+                                              <span className="text-neutral-400">Items: <strong className="text-white">{dayQty.toLocaleString()}</strong></span>
+                                              <span className="text-neutral-400">Outlay: <strong className="text-white">{dayOutlay.toLocaleString()} gp</strong></span>
+                                              <span className={dayProfit >= 0 ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
+                                                Net: {dayProfit >= 0 ? `+${dayProfit.toLocaleString()}` : dayProfit.toLocaleString()} gp
+                                              </span>
+                                            </div>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                      {entries.map((entry) => (
+                                        <tr key={entry.id} onDoubleClick={() => setEditSessionModal({ show: true, entryId: entry.id, qty: entry.qty, price: entry.price, itemName: entry.itemName, role: entry.role })} className="hover:bg-[#191e29] transition-colors font-mono cursor-pointer select-none" title="Double-click to edit entry">
+                                          <td className="px-3 py-2.5 text-neutral-400 text-[11px]">
+                                            {new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                          </td>
+                                          <td className="px-3 py-2.5 font-bold font-sans text-white">
+                                            {entry.itemName}
+                                          </td>
+                                          <td className="px-3 py-2.5">
+                                            <span className={`px-2 py-0.5 rounded text-[10px] font-sans font-bold uppercase ${
+                                              entry.role === 'buyer' 
+                                                ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' 
+                                                : entry.role === 'seller'
+                                                ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
+                                                : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                                            }`}>
+                                              {entry.role === 'buyer' ? 'W308 Buy' : entry.role === 'seller' ? 'W308 Sell' : 'High Alch'}
+                                            </span>
+                                          </td>
+                                          <td className="px-3 py-2.5 text-right font-bold text-white">
+                                            {entry.qty.toLocaleString()}
+                                          </td>
+                                          <td className="px-3 py-2.5 text-right text-neutral-300">
+                                            {entry.price.toLocaleString()} gp
+                                          </td>
+                                          <td className="px-3 py-2.5 text-right text-neutral-300">
+                                            {entry.totalCoins.toLocaleString()} gp
+                                          </td>
+                                          <td className={`px-3 py-2.5 text-right font-bold ${entry.netProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                            {entry.netProfit >= 0 ? `+${entry.netProfit.toLocaleString()} gp` : `${entry.netProfit.toLocaleString()} gp`}
+                                          </td>
+                                          <td className="px-3 py-2.5 text-right text-cyan-400">
+                                            +{(entry.magicXp || 0).toLocaleString()}
+                                          </td>
+                                          <td className="px-3 py-2.5 text-center flex items-center justify-center gap-1.5">
+                                            <button
+                                              onClick={() => setEditSessionModal({ show: true, entryId: entry.id, qty: entry.qty, price: entry.price, itemName: entry.itemName, role: entry.role })}
+                                              title="Edit quantity or buy price"
+                                              className="text-neutral-500 hover:text-cyan-400 transition-colors p-1"
+                                            >
+                                              ✏️
+                                            </button>
+                                            <button
+                                              onClick={() => handleDeleteSessionItem(entry.id)}
+                                              title="Delete entry"
+                                              className="text-neutral-500 hover:text-rose-400 transition-colors p-1"
+                                            >
+                                              <Trash2 className="w-3.5 h-3.5" />
+                                            </button>
+                                          </td>
+                                        </tr>
+                                      ))}
+                                    </React.Fragment>
+                                  );
+                                });
+                              }
+
+                              return filtered.map((entry) => (
+                                <tr key={entry.id} onDoubleClick={() => setEditSessionModal({ show: true, entryId: entry.id, qty: entry.qty, price: entry.price, itemName: entry.itemName, role: entry.role })} className="hover:bg-[#191e29] transition-colors font-mono cursor-pointer select-none" title="Double-click to edit entry">
+                                  <td className="px-3 py-2.5 text-neutral-400 text-[11px]">
+                                    {new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                  </td>
+                                  <td className="px-3 py-2.5 font-bold font-sans text-white">
+                                    {entry.itemName}
+                                  </td>
+                                  <td className="px-3 py-2.5">
+                                    <span className={`px-2 py-0.5 rounded text-[10px] font-sans font-bold uppercase ${
+                                      entry.role === 'buyer' 
+                                        ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' 
+                                        : entry.role === 'seller'
+                                        ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
+                                        : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                                    }`}>
+                                      {entry.role === 'buyer' ? 'W308 Buy' : entry.role === 'seller' ? 'W308 Sell' : 'High Alch'}
+                                    </span>
+                                  </td>
+                                  <td className="px-3 py-2.5 text-right font-bold text-white">
+                                    {entry.qty.toLocaleString()}
+                                  </td>
+                                  <td className="px-3 py-2.5 text-right text-neutral-300">
+                                    {entry.price.toLocaleString()} gp
+                                  </td>
+                                  <td className="px-3 py-2.5 text-right text-neutral-300">
+                                    {entry.totalCoins.toLocaleString()} gp
+                                  </td>
+                                  <td className={`px-3 py-2.5 text-right font-bold ${entry.netProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                    {entry.netProfit >= 0 ? `+${entry.netProfit.toLocaleString()} gp` : `${entry.netProfit.toLocaleString()} gp`}
+                                  </td>
+                                  <td className="px-3 py-2.5 text-right text-cyan-400">
+                                    +{(entry.magicXp || 0).toLocaleString()}
+                                  </td>
+                                  <td className="px-3 py-2.5 text-center flex items-center justify-center gap-1.5">
+                                    <button
+                                      onClick={() => setEditSessionModal({ show: true, entryId: entry.id, qty: entry.qty, price: entry.price, itemName: entry.itemName, role: entry.role })}
+                                      title="Edit quantity or buy price"
+                                      className="text-neutral-500 hover:text-cyan-400 transition-colors p-1"
+                                    >
+                                      ✏️
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteSessionItem(entry.id)}
+                                      title="Delete entry"
+                                      className="text-neutral-500 hover:text-rose-400 transition-colors p-1"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </td>
+                                </tr>
+                              ));
+                            })()}
                           </tbody>
                         </table>
                       ) : (
                         /* Consolidated Stacks View */
                         (() => {
+                          const filtered = sessionLog.filter(s => sessionAccountFilter === 'all' || (s as any).account === sessionAccountFilter);
                           const grouped: { [key: string]: { name: string; qty: number; outlay: number; profit: number; magicXp: number } } = {};
-                          for (const s of sessionLog) {
+                          for (const s of filtered) {
                             if (!grouped[s.itemName]) {
                               grouped[s.itemName] = { name: s.itemName, qty: 0, outlay: 0, profit: 0, magicXp: 0 };
                             }
@@ -5799,12 +6406,36 @@ export default function Dashboard() {
                             <table className="w-full text-xs text-left">
                               <thead className="bg-[#0f1219] text-neutral-400 uppercase text-[10px] font-mono border-b border-[#242b3b]">
                                 <tr>
-                                  <th className="px-3 py-3">Consolidated Item</th>
-                                  <th className="px-3 py-3 text-right">Total Quantity</th>
-                                  <th className="px-3 py-3 text-right">Total Outlay</th>
-                                  <th className="px-3 py-3 text-right">Total Net Profit</th>
-                                  <th className="px-3 py-3 text-right">Avg Profit / Ea</th>
-                                  <th className="px-3 py-3 text-right">Magic XP Gained</th>
+                                  <th className="px-3 py-3">
+                                    <Tooltip text="Consolidated Item:&#10;Distinct item aggregated across all fills.">
+                                      <span>Consolidated Item</span>
+                                    </Tooltip>
+                                  </th>
+                                  <th className="px-3 py-3 text-right">
+                                    <Tooltip text="Total Quantity:&#10;Cumulative units alched across session.">
+                                      <span>Total Quantity</span>
+                                    </Tooltip>
+                                  </th>
+                                  <th className="px-3 py-3 text-right">
+                                    <Tooltip text="Total Outlay:&#10;Cumulative capital spent on this item stack.">
+                                      <span>Total Outlay</span>
+                                    </Tooltip>
+                                  </th>
+                                  <th className="px-3 py-3 text-right">
+                                    <Tooltip text="Total Net Profit:&#10;Cumulative net profit realized.">
+                                      <span>Total Net Profit</span>
+                                    </Tooltip>
+                                  </th>
+                                  <th className="px-3 py-3 text-right">
+                                    <Tooltip text="Avg Profit / Ea:&#10;Weighted average profit earned per item.">
+                                      <span>Avg Profit / Ea</span>
+                                    </Tooltip>
+                                  </th>
+                                  <th className="px-3 py-3 text-right">
+                                    <Tooltip text="Magic XP Gained:&#10;Total experience gained alching this item.">
+                                      <span>Magic XP Gained</span>
+                                    </Tooltip>
+                                  </th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-[#1e2433]">
@@ -6486,6 +7117,310 @@ export default function Dashboard() {
           </div>
         )}
       </main>
+
+      {/* Global Right-Click Context Menu (Desktop gui.py on_*_right_click menus) */}
+      {contextMenu.show && contextMenu.item && (
+        <div
+          className="fixed z-50 bg-[#161922] border border-[#2e374d] rounded-xl shadow-2xl py-1 text-xs text-neutral-200 min-w-[220px] backdrop-blur-md animate-in fade-in duration-100"
+          style={{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="px-3 py-1.5 border-b border-[#252c3e] text-[11px] font-bold text-amber-400 flex items-center justify-between">
+            <span className="truncate max-w-[170px]">{contextMenu.item.name || contextMenu.item.itemName}</span>
+            <button 
+              onClick={() => setContextMenu(prev => ({ ...prev, show: false }))}
+              className="text-neutral-500 hover:text-white"
+            >
+              ✕
+            </button>
+          </div>
+
+          {contextMenu.type === 'alch' && (
+            <div className="py-1">
+              <button
+                onClick={() => {
+                  handleToggleCart(contextMenu.item);
+                  setContextMenu(prev => ({ ...prev, show: false }));
+                }}
+                className="w-full text-left px-3 py-1.5 hover:bg-[#202738] hover:text-white flex items-center gap-2"
+              >
+                🛒 {cartItems.some(c => c.id === contextMenu.item.id) ? 'Remove from Cart' : `Add Full Limit (${contextMenu.item.buy_limit}x) to Cart`}
+              </button>
+              <button
+                onClick={() => {
+                  setQuantityModal({ show: true, item: contextMenu.item, qty: contextMenu.item.buy_limit || 70 });
+                  setContextMenu(prev => ({ ...prev, show: false }));
+                }}
+                className="w-full text-left px-3 py-1.5 hover:bg-[#202738] hover:text-white flex items-center gap-2"
+              >
+                ✏️ Set Custom Quantity in Cart...
+              </button>
+              <div className="border-t border-[#252c3e] my-1"></div>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(contextMenu.item.name);
+                  showToast(`📋 Copied '${contextMenu.item.name}'`);
+                  setContextMenu(prev => ({ ...prev, show: false }));
+                }}
+                className="w-full text-left px-3 py-1.5 hover:bg-[#202738] hover:text-white flex items-center gap-2"
+              >
+                📋 Copy Item Name
+              </button>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(String(contextMenu.item.buy_price || contextMenu.item.bid));
+                  showToast(`💰 Copied price: ${(contextMenu.item.buy_price || contextMenu.item.bid).toLocaleString()} gp`);
+                  setContextMenu(prev => ({ ...prev, show: false }));
+                }}
+                className="w-full text-left px-3 py-1.5 hover:bg-[#202738] hover:text-white flex items-center gap-2"
+              >
+                💰 Copy Target Bid Price
+              </button>
+              <button
+                onClick={() => {
+                  window.open(`https://prices.runescape.wiki/osrs/item/${contextMenu.item.id}`, '_blank');
+                  setContextMenu(prev => ({ ...prev, show: false }));
+                }}
+                className="w-full text-left px-3 py-1.5 hover:bg-[#202738] hover:text-cyan-400 flex items-center gap-2"
+              >
+                🌐 Open in OSRS Wiki Prices
+              </button>
+            </div>
+          )}
+
+          {contextMenu.type === 'rec' && (
+            <div className="py-1">
+              <button
+                onClick={() => {
+                  setCartItems(prev => {
+                    if (prev.some(c => c.id === contextMenu.item.id)) return prev;
+                    return [...prev, { id: contextMenu.item.id, name: contextMenu.item.name, buyPrice: contextMenu.item.target_bid, limit: contextMenu.item.limit, profit: contextMenu.item.profit_ea }];
+                  });
+                  showToast(`🛒 Added ${contextMenu.item.name} to Cart`);
+                  setContextMenu(prev => ({ ...prev, show: false }));
+                }}
+                className="w-full text-left px-3 py-1.5 hover:bg-[#202738] hover:text-white flex items-center gap-2"
+              >
+                🛒 Add Full Limit ({contextMenu.item.limit}x) to Cart
+              </button>
+              <button
+                onClick={() => {
+                  setQuantityModal({ show: true, item: { ...contextMenu.item, buy_limit: contextMenu.item.limit, buy_price: contextMenu.item.target_bid }, qty: contextMenu.item.limit });
+                  setContextMenu(prev => ({ ...prev, show: false }));
+                }}
+                className="w-full text-left px-3 py-1.5 hover:bg-[#202738] hover:text-white flex items-center gap-2"
+              >
+                ✏️ Set Custom Quantity in Cart...
+              </button>
+              <div className="border-t border-[#252c3e] my-1"></div>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(contextMenu.item.name);
+                  showToast(`📋 Copied '${contextMenu.item.name}'`);
+                  setContextMenu(prev => ({ ...prev, show: false }));
+                }}
+                className="w-full text-left px-3 py-1.5 hover:bg-[#202738] hover:text-white flex items-center gap-2"
+              >
+                📋 Copy Item Name
+              </button>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(String(contextMenu.item.target_bid));
+                  showToast(`💰 Copied Target Bid: ${contextMenu.item.target_bid.toLocaleString()} gp`);
+                  setContextMenu(prev => ({ ...prev, show: false }));
+                }}
+                className="w-full text-left px-3 py-1.5 hover:bg-[#202738] hover:text-white flex items-center gap-2"
+              >
+                💰 Copy Target Bid Price
+              </button>
+              <button
+                onClick={() => {
+                  window.open(`https://prices.runescape.wiki/osrs/item/${contextMenu.item.id}`, '_blank');
+                  setContextMenu(prev => ({ ...prev, show: false }));
+                }}
+                className="w-full text-left px-3 py-1.5 hover:bg-[#202738] hover:text-cyan-400 flex items-center gap-2"
+              >
+                🌐 Open in OSRS Wiki Prices
+              </button>
+            </div>
+          )}
+
+          {contextMenu.type === 'overnight' && (
+            <div className="py-1">
+              <button
+                onClick={() => {
+                  setCartItems(prev => {
+                    if (prev.some(c => c.id === contextMenu.item.id)) return prev;
+                    return [...prev, { id: contextMenu.item.id, name: contextMenu.item.name, buyPrice: contextMenu.item.bid, limit: contextMenu.item.alloc_qty || contextMenu.item.period_limit, profit: contextMenu.item.profit_ea }];
+                  });
+                  showToast(`🛒 Added ${contextMenu.item.name} to Cart`);
+                  setContextMenu(prev => ({ ...prev, show: false }));
+                }}
+                className="w-full text-left px-3 py-1.5 hover:bg-[#202738] hover:text-white flex items-center gap-2"
+              >
+                🛒 Add to Cart ({(contextMenu.item.alloc_qty || contextMenu.item.period_limit).toLocaleString()}x)
+              </button>
+              <button
+                onClick={() => {
+                  setQuantityModal({ show: true, item: { ...contextMenu.item, buy_limit: contextMenu.item.period_limit, buy_price: contextMenu.item.bid }, qty: contextMenu.item.alloc_qty || contextMenu.item.period_limit });
+                  setContextMenu(prev => ({ ...prev, show: false }));
+                }}
+                className="w-full text-left px-3 py-1.5 hover:bg-[#202738] hover:text-white flex items-center gap-2"
+              >
+                ✏️ Set Custom Quantity in Cart...
+              </button>
+              <div className="border-t border-[#252c3e] my-1"></div>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(`Buy ${(contextMenu.item.alloc_qty || contextMenu.item.period_limit).toLocaleString()}x ${contextMenu.item.name} @ ${contextMenu.item.bid.toLocaleString()} gp`);
+                  showToast(`📝 Copied GE Order!`);
+                  setContextMenu(prev => ({ ...prev, show: false }));
+                }}
+                className="w-full text-left px-3 py-1.5 hover:bg-[#202738] hover:text-amber-400 flex items-center gap-2"
+              >
+                📝 Copy GE Order Text
+              </button>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(String(contextMenu.item.bid));
+                  showToast(`💰 Copied Optimal Bid: ${contextMenu.item.bid.toLocaleString()} gp`);
+                  setContextMenu(prev => ({ ...prev, show: false }));
+                }}
+                className="w-full text-left px-3 py-1.5 hover:bg-[#202738] hover:text-white flex items-center gap-2"
+              >
+                💰 Copy Optimal Bid Price
+              </button>
+              <button
+                onClick={() => {
+                  window.open(`https://prices.runescape.wiki/osrs/item/${contextMenu.item.id}`, '_blank');
+                  setContextMenu(prev => ({ ...prev, show: false }));
+                }}
+                className="w-full text-left px-3 py-1.5 hover:bg-[#202738] hover:text-cyan-400 flex items-center gap-2"
+              >
+                🌐 Open in OSRS Wiki Prices
+              </button>
+            </div>
+          )}
+
+          {contextMenu.type === 'w308' && (
+            <div className="py-1">
+              <button
+                onClick={() => {
+                  setW308SelectedItem(contextMenu.item.name);
+                  setW308AgreedPrice(contextMenu.item.w308_price);
+                  showToast(`🛡️ Loaded ${contextMenu.item.name} into Trade Validator!`);
+                  setContextMenu(prev => ({ ...prev, show: false }));
+                }}
+                className="w-full text-left px-3 py-1.5 hover:bg-[#202738] hover:text-amber-400 flex items-center gap-2"
+              >
+                🛡️ Load into Trade Validator
+              </button>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(contextMenu.item.chat_ad);
+                  showToast(`📢 Copied Clan Trade Ad!`);
+                  setContextMenu(prev => ({ ...prev, show: false }));
+                }}
+                className="w-full text-left px-3 py-1.5 hover:bg-[#202738] hover:text-white flex items-center gap-2"
+              >
+                📢 Copy Clan Trade Ad
+              </button>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(String(contextMenu.item.trade_price));
+                  showToast(`💰 Copied Price: ${contextMenu.item.trade_price.toLocaleString()} gp`);
+                  setContextMenu(prev => ({ ...prev, show: false }));
+                }}
+                className="w-full text-left px-3 py-1.5 hover:bg-[#202738] hover:text-white flex items-center gap-2"
+              >
+                💰 Copy W308 Price
+              </button>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(String(contextMenu.item.max_stack));
+                  showToast(`📦 Copied Max Stack: ${contextMenu.item.max_stack.toLocaleString()}x`);
+                  setContextMenu(prev => ({ ...prev, show: false }));
+                }}
+                className="w-full text-left px-3 py-1.5 hover:bg-[#202738] hover:text-white flex items-center gap-2"
+              >
+                📦 Copy Max Stack Quantity
+              </button>
+            </div>
+          )}
+
+          {contextMenu.type === 'craft' && (
+            <div className="py-1">
+              <button
+                onClick={() => {
+                  setExpandedCraftRows(prev => ({ ...prev, [contextMenu.item.name]: !prev[contextMenu.item.name] }));
+                  setContextMenu(prev => ({ ...prev, show: false }));
+                }}
+                className="w-full text-left px-3 py-1.5 hover:bg-[#202738] hover:text-white flex items-center gap-2"
+              >
+                🔍 Toggle Recipe Breakdown
+              </button>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(contextMenu.item.name);
+                  showToast(`📋 Copied '${contextMenu.item.name}'`);
+                  setContextMenu(prev => ({ ...prev, show: false }));
+                }}
+                className="w-full text-left px-3 py-1.5 hover:bg-[#202738] hover:text-white flex items-center gap-2"
+              >
+                📋 Copy Product Name
+              </button>
+              {contextMenu.item.output_id && (
+                <button
+                  onClick={() => {
+                    window.open(`https://prices.runescape.wiki/osrs/item/${contextMenu.item.output_id}`, '_blank');
+                    setContextMenu(prev => ({ ...prev, show: false }));
+                  }}
+                  className="w-full text-left px-3 py-1.5 hover:bg-[#202738] hover:text-cyan-400 flex items-center gap-2"
+                >
+                  🌐 Open in OSRS Wiki Prices
+                </button>
+              )}
+            </div>
+          )}
+
+          {contextMenu.type === 'guide' && (
+            <div className="py-1">
+              <button
+                onClick={() => {
+                  setInspItemName(contextMenu.item.name || contextMenu.item.wiki_slug);
+                  setGuideViewMode('sale_inspector');
+                  showToast(`💰 Loaded ${contextMenu.item.name} into Sale Price Inspector!`);
+                  setContextMenu(prev => ({ ...prev, show: false }));
+                }}
+                className="w-full text-left px-3 py-1.5 hover:bg-[#202738] hover:text-amber-400 flex items-center gap-2"
+              >
+                💰 Inspect Custom Sale Price
+              </button>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(contextMenu.item.name);
+                  showToast(`📋 Copied Method Name: '${contextMenu.item.name}'`);
+                  setContextMenu(prev => ({ ...prev, show: false }));
+                }}
+                className="w-full text-left px-3 py-1.5 hover:bg-[#202738] hover:text-white flex items-center gap-2"
+              >
+                📋 Copy Method Name
+              </button>
+              {contextMenu.item.wiki_slug && (
+                <button
+                  onClick={() => {
+                    window.open(`https://oldschool.runescape.wiki/w/${contextMenu.item.wiki_slug}`, '_blank');
+                    setContextMenu(prev => ({ ...prev, show: false }));
+                  }}
+                  className="w-full text-left px-3 py-1.5 hover:bg-[#202738] hover:text-cyan-400 flex items-center gap-2"
+                >
+                  🌐 Open Wiki Quest/Training Guide
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Floating Toast Notification matching desktop FloatingToast */}
       {toastMsg && (

@@ -119,3 +119,79 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: err.message || 'Server error' }, { status: 500 });
   }
 }
+
+export async function GET(req: NextRequest) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const authHeader = req.headers.get('authorization')?.replace('Bearer ', '').trim();
+    const token = searchParams.get('token') || searchParams.get('sync_token') || authHeader || '';
+
+    if (!token) {
+      return NextResponse.json({ error: 'Missing sync token' }, { status: 400 });
+    }
+
+    if (!supabaseSecret) {
+      return NextResponse.json({ 
+        success: false, 
+        message: 'Supabase credentials not configured',
+        characters: [],
+        character: null,
+        sessions: [],
+        daily_stats: []
+      });
+    }
+
+    // Find profile
+    const { data: profile } = await supabaseAdmin
+      .from('profiles')
+      .select('id')
+      .eq('sync_token', token)
+      .single();
+
+    if (!profile) {
+      return NextResponse.json({ 
+        success: true, 
+        characters: [],
+        character: null, 
+        sessions: [], 
+        daily_stats: [] 
+      });
+    }
+
+    // Fetch characters
+    const { data: characters } = await supabaseAdmin
+      .from('characters')
+      .select('*')
+      .eq('user_id', profile.id)
+      .order('last_seen', { ascending: false });
+
+    // Fetch recent alch sessions
+    const { data: sessions } = await supabaseAdmin
+      .from('alch_sessions')
+      .select('*')
+      .eq('user_id', profile.id)
+      .order('created_at', { ascending: false })
+      .limit(200);
+
+    // Fetch daily stats
+    const { data: dailyStats } = await supabaseAdmin
+      .from('daily_stats')
+      .select('*')
+      .eq('user_id', profile.id)
+      .order('date', { ascending: false })
+      .limit(30);
+
+    return NextResponse.json({
+      success: true,
+      characters: characters || [],
+      character: characters?.[0] || null,
+      sessions: sessions || [],
+      daily_stats: dailyStats || [],
+      timestamp: Date.now()
+    });
+  } catch (err: any) {
+    console.error('Sync GET error:', err);
+    return NextResponse.json({ error: err.message || 'Server error' }, { status: 500 });
+  }
+}
+
