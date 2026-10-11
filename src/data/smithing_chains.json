@@ -1,0 +1,1457 @@
+[
+  {
+    "tier": "Bronze",
+    "bar_name": "Bronze bar",
+    "bar_id": 2349,
+    "ore_name": "Copper ore",
+    "ore_id": 436,
+    "second_name": "Tin ore",
+    "second_id": 438,
+    "coal_qty_bf": 0,
+    "coal_qty_reg": 0,
+    "smelt_lvl": 1,
+    "smelt_xp": 6.25,
+    "members": false,
+    "items": [
+      {
+        "name": "Bronze dagger",
+        "id": 1205,
+        "level": 1,
+        "bars": 1,
+        "xp": 12.5,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Bronze axe",
+        "id": 1351,
+        "level": 1,
+        "bars": 1,
+        "xp": 12.5,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Bronze pickaxe",
+        "id": 1265,
+        "level": 1,
+        "bars": 1,
+        "xp": 12.5,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Bronze mace",
+        "id": 1422,
+        "level": 2,
+        "bars": 1,
+        "xp": 12.5,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Bronze med helm",
+        "id": 1139,
+        "level": 3,
+        "bars": 1,
+        "xp": 12.5,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Bronze sword",
+        "id": 1277,
+        "level": 4,
+        "bars": 1,
+        "xp": 12.5,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Bronze dart tip",
+        "id": 819,
+        "level": 4,
+        "bars": 1,
+        "xp": 12.5,
+        "qty": 10,
+        "members": true
+      },
+      {
+        "name": "Bronze nails",
+        "id": 4819,
+        "level": 4,
+        "bars": 1,
+        "xp": 12.5,
+        "qty": 15,
+        "members": true
+      },
+      {
+        "name": "Bronze scimitar",
+        "id": 1321,
+        "level": 5,
+        "bars": 2,
+        "xp": 25.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Bronze arrowtips",
+        "id": 39,
+        "level": 5,
+        "bars": 1,
+        "xp": 12.5,
+        "qty": 15,
+        "members": true
+      },
+      {
+        "name": "Bronze limbs",
+        "id": 9420,
+        "level": 6,
+        "bars": 1,
+        "xp": 12.5,
+        "qty": 1,
+        "members": true
+      },
+      {
+        "name": "Bronze longsword",
+        "id": 1291,
+        "level": 6,
+        "bars": 2,
+        "xp": 25.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Bronze full helm",
+        "id": 1155,
+        "level": 7,
+        "bars": 2,
+        "xp": 25.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Bronze knife",
+        "id": 864,
+        "level": 7,
+        "bars": 1,
+        "xp": 12.5,
+        "qty": 5,
+        "members": true
+      },
+      {
+        "name": "Bronze sq shield",
+        "id": 1173,
+        "level": 8,
+        "bars": 2,
+        "xp": 25.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Bronze warhammer",
+        "id": 1337,
+        "level": 9,
+        "bars": 3,
+        "xp": 37.5,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Bronze battleaxe",
+        "id": 1375,
+        "level": 10,
+        "bars": 3,
+        "xp": 37.5,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Bronze chainbody",
+        "id": 1103,
+        "level": 11,
+        "bars": 3,
+        "xp": 37.5,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Bronze kiteshield",
+        "id": 1189,
+        "level": 12,
+        "bars": 3,
+        "xp": 37.5,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Bronze claws",
+        "id": 3095,
+        "level": 13,
+        "bars": 2,
+        "xp": 25.0,
+        "qty": 1,
+        "members": true
+      },
+      {
+        "name": "Bronze 2h sword",
+        "id": 1307,
+        "level": 14,
+        "bars": 3,
+        "xp": 37.5,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Bronze platelegs",
+        "id": 1075,
+        "level": 16,
+        "bars": 3,
+        "xp": 37.5,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Bronze plateskirt",
+        "id": 1087,
+        "level": 16,
+        "bars": 3,
+        "xp": 37.5,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Bronze platebody",
+        "id": 1117,
+        "level": 18,
+        "bars": 5,
+        "xp": 62.5,
+        "qty": 1,
+        "members": false
+      }
+    ]
+  },
+  {
+    "tier": "Iron",
+    "bar_name": "Iron bar",
+    "bar_id": 2351,
+    "ore_name": "Iron ore",
+    "ore_id": 440,
+    "second_name": "",
+    "second_id": 0,
+    "coal_qty_bf": 0,
+    "coal_qty_reg": 0,
+    "smelt_lvl": 15,
+    "smelt_xp": 12.5,
+    "members": false,
+    "items": [
+      {
+        "name": "Iron dagger",
+        "id": 1203,
+        "level": 15,
+        "bars": 1,
+        "xp": 25.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Iron axe",
+        "id": 1349,
+        "level": 16,
+        "bars": 1,
+        "xp": 25.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Iron pickaxe",
+        "id": 1267,
+        "level": 16,
+        "bars": 1,
+        "xp": 25.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Iron mace",
+        "id": 1420,
+        "level": 17,
+        "bars": 1,
+        "xp": 25.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Iron med helm",
+        "id": 1137,
+        "level": 18,
+        "bars": 1,
+        "xp": 25.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Iron sword",
+        "id": 1279,
+        "level": 19,
+        "bars": 1,
+        "xp": 25.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Iron dart tip",
+        "id": 820,
+        "level": 19,
+        "bars": 1,
+        "xp": 25.0,
+        "qty": 10,
+        "members": true
+      },
+      {
+        "name": "Iron nails",
+        "id": 4820,
+        "level": 19,
+        "bars": 1,
+        "xp": 25.0,
+        "qty": 15,
+        "members": true
+      },
+      {
+        "name": "Iron scimitar",
+        "id": 1323,
+        "level": 20,
+        "bars": 2,
+        "xp": 50.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Iron arrowtips",
+        "id": 40,
+        "level": 20,
+        "bars": 1,
+        "xp": 25.0,
+        "qty": 15,
+        "members": true
+      },
+      {
+        "name": "Iron limbs",
+        "id": 9423,
+        "level": 21,
+        "bars": 1,
+        "xp": 25.0,
+        "qty": 1,
+        "members": true
+      },
+      {
+        "name": "Iron longsword",
+        "id": 1293,
+        "level": 21,
+        "bars": 2,
+        "xp": 50.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Iron full helm",
+        "id": 1153,
+        "level": 22,
+        "bars": 2,
+        "xp": 50.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Iron knife",
+        "id": 863,
+        "level": 22,
+        "bars": 1,
+        "xp": 25.0,
+        "qty": 5,
+        "members": true
+      },
+      {
+        "name": "Iron sq shield",
+        "id": 1175,
+        "level": 23,
+        "bars": 2,
+        "xp": 50.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Iron warhammer",
+        "id": 1335,
+        "level": 24,
+        "bars": 3,
+        "xp": 75.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Iron battleaxe",
+        "id": 1363,
+        "level": 25,
+        "bars": 3,
+        "xp": 75.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Iron chainbody",
+        "id": 1101,
+        "level": 26,
+        "bars": 3,
+        "xp": 75.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Iron kiteshield",
+        "id": 1191,
+        "level": 27,
+        "bars": 3,
+        "xp": 75.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Iron claws",
+        "id": 3096,
+        "level": 28,
+        "bars": 2,
+        "xp": 50.0,
+        "qty": 1,
+        "members": true
+      },
+      {
+        "name": "Iron 2h sword",
+        "id": 1309,
+        "level": 29,
+        "bars": 3,
+        "xp": 75.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Iron platelegs",
+        "id": 1067,
+        "level": 31,
+        "bars": 3,
+        "xp": 75.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Iron plateskirt",
+        "id": 1081,
+        "level": 31,
+        "bars": 3,
+        "xp": 75.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Iron platebody",
+        "id": 1115,
+        "level": 33,
+        "bars": 5,
+        "xp": 125.0,
+        "qty": 1,
+        "members": false
+      }
+    ]
+  },
+  {
+    "tier": "Steel",
+    "bar_name": "Steel bar",
+    "bar_id": 2353,
+    "ore_name": "Iron ore",
+    "ore_id": 440,
+    "second_name": "Coal",
+    "second_id": 453,
+    "coal_qty_bf": 1,
+    "coal_qty_reg": 2,
+    "smelt_lvl": 30,
+    "smelt_xp": 17.5,
+    "members": false,
+    "items": [
+      {
+        "name": "Steel dagger",
+        "id": 1207,
+        "level": 30,
+        "bars": 1,
+        "xp": 37.5,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Steel axe",
+        "id": 1353,
+        "level": 31,
+        "bars": 1,
+        "xp": 37.5,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Steel pickaxe",
+        "id": 1269,
+        "level": 31,
+        "bars": 1,
+        "xp": 37.5,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Steel mace",
+        "id": 1424,
+        "level": 32,
+        "bars": 1,
+        "xp": 37.5,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Steel med helm",
+        "id": 1141,
+        "level": 33,
+        "bars": 1,
+        "xp": 37.5,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Steel bolts (unf)",
+        "id": 9378,
+        "level": 33,
+        "bars": 1,
+        "xp": 37.5,
+        "qty": 10,
+        "members": true
+      },
+      {
+        "name": "Steel sword",
+        "id": 1281,
+        "level": 34,
+        "bars": 1,
+        "xp": 37.5,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Steel dart tip",
+        "id": 821,
+        "level": 34,
+        "bars": 1,
+        "xp": 37.5,
+        "qty": 10,
+        "members": true
+      },
+      {
+        "name": "Steel nails",
+        "id": 1539,
+        "level": 34,
+        "bars": 1,
+        "xp": 37.5,
+        "qty": 15,
+        "members": true
+      },
+      {
+        "name": "Cannonballs",
+        "id": 2,
+        "level": 35,
+        "bars": 1,
+        "xp": 25.6,
+        "qty": 4,
+        "members": true
+      },
+      {
+        "name": "Steel scimitar",
+        "id": 1325,
+        "level": 35,
+        "bars": 2,
+        "xp": 75.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Steel arrowtips",
+        "id": 41,
+        "level": 35,
+        "bars": 1,
+        "xp": 37.5,
+        "qty": 15,
+        "members": true
+      },
+      {
+        "name": "Steel limbs",
+        "id": 9425,
+        "level": 36,
+        "bars": 1,
+        "xp": 37.5,
+        "qty": 1,
+        "members": true
+      },
+      {
+        "name": "Steel longsword",
+        "id": 1295,
+        "level": 36,
+        "bars": 2,
+        "xp": 75.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Steel full helm",
+        "id": 1157,
+        "level": 37,
+        "bars": 2,
+        "xp": 75.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Steel knife",
+        "id": 865,
+        "level": 37,
+        "bars": 1,
+        "xp": 37.5,
+        "qty": 5,
+        "members": true
+      },
+      {
+        "name": "Steel sq shield",
+        "id": 1179,
+        "level": 38,
+        "bars": 2,
+        "xp": 75.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Steel warhammer",
+        "id": 1339,
+        "level": 39,
+        "bars": 3,
+        "xp": 112.5,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Steel battleaxe",
+        "id": 1365,
+        "level": 40,
+        "bars": 3,
+        "xp": 112.5,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Steel chainbody",
+        "id": 1105,
+        "level": 41,
+        "bars": 3,
+        "xp": 112.5,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Steel kiteshield",
+        "id": 1193,
+        "level": 42,
+        "bars": 3,
+        "xp": 112.5,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Steel claws",
+        "id": 3097,
+        "level": 43,
+        "bars": 2,
+        "xp": 75.0,
+        "qty": 1,
+        "members": true
+      },
+      {
+        "name": "Steel 2h sword",
+        "id": 1311,
+        "level": 44,
+        "bars": 3,
+        "xp": 112.5,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Steel platelegs",
+        "id": 1069,
+        "level": 46,
+        "bars": 3,
+        "xp": 112.5,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Steel plateskirt",
+        "id": 1083,
+        "level": 46,
+        "bars": 3,
+        "xp": 112.5,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Steel platebody",
+        "id": 1119,
+        "level": 48,
+        "bars": 5,
+        "xp": 187.5,
+        "qty": 1,
+        "members": false
+      }
+    ]
+  },
+  {
+    "tier": "Mithril",
+    "bar_name": "Mithril bar",
+    "bar_id": 2359,
+    "ore_name": "Mithril ore",
+    "ore_id": 447,
+    "second_name": "Coal",
+    "second_id": 453,
+    "coal_qty_bf": 2,
+    "coal_qty_reg": 4,
+    "smelt_lvl": 50,
+    "smelt_xp": 30.0,
+    "members": false,
+    "items": [
+      {
+        "name": "Mithril dagger",
+        "id": 1209,
+        "level": 50,
+        "bars": 1,
+        "xp": 50.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Mithril axe",
+        "id": 1355,
+        "level": 51,
+        "bars": 1,
+        "xp": 50.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Mithril pickaxe",
+        "id": 1273,
+        "level": 51,
+        "bars": 1,
+        "xp": 50.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Mithril mace",
+        "id": 1428,
+        "level": 52,
+        "bars": 1,
+        "xp": 50.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Mithril med helm",
+        "id": 1143,
+        "level": 53,
+        "bars": 1,
+        "xp": 50.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Mithril bolts (unf)",
+        "id": 9379,
+        "level": 53,
+        "bars": 1,
+        "xp": 50.0,
+        "qty": 10,
+        "members": true
+      },
+      {
+        "name": "Mithril sword",
+        "id": 1285,
+        "level": 54,
+        "bars": 1,
+        "xp": 50.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Mithril dart tip",
+        "id": 822,
+        "level": 54,
+        "bars": 1,
+        "xp": 50.0,
+        "qty": 10,
+        "members": true
+      },
+      {
+        "name": "Mithril nails",
+        "id": 4822,
+        "level": 54,
+        "bars": 1,
+        "xp": 50.0,
+        "qty": 15,
+        "members": true
+      },
+      {
+        "name": "Mithril scimitar",
+        "id": 1329,
+        "level": 55,
+        "bars": 2,
+        "xp": 100.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Mithril arrowtips",
+        "id": 42,
+        "level": 55,
+        "bars": 1,
+        "xp": 50.0,
+        "qty": 15,
+        "members": true
+      },
+      {
+        "name": "Mithril limbs",
+        "id": 9427,
+        "level": 56,
+        "bars": 1,
+        "xp": 50.0,
+        "qty": 1,
+        "members": true
+      },
+      {
+        "name": "Mithril longsword",
+        "id": 1299,
+        "level": 56,
+        "bars": 2,
+        "xp": 100.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Mithril full helm",
+        "id": 1159,
+        "level": 57,
+        "bars": 2,
+        "xp": 100.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Mithril knife",
+        "id": 866,
+        "level": 57,
+        "bars": 1,
+        "xp": 50.0,
+        "qty": 5,
+        "members": true
+      },
+      {
+        "name": "Mithril sq shield",
+        "id": 1181,
+        "level": 58,
+        "bars": 2,
+        "xp": 100.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Mithril warhammer",
+        "id": 1343,
+        "level": 59,
+        "bars": 3,
+        "xp": 150.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Mithril battleaxe",
+        "id": 1369,
+        "level": 60,
+        "bars": 3,
+        "xp": 150.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Mithril chainbody",
+        "id": 1109,
+        "level": 61,
+        "bars": 3,
+        "xp": 150.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Mithril kiteshield",
+        "id": 1197,
+        "level": 62,
+        "bars": 3,
+        "xp": 150.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Mithril claws",
+        "id": 3098,
+        "level": 63,
+        "bars": 2,
+        "xp": 100.0,
+        "qty": 1,
+        "members": true
+      },
+      {
+        "name": "Mithril 2h sword",
+        "id": 1315,
+        "level": 64,
+        "bars": 3,
+        "xp": 150.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Mithril platelegs",
+        "id": 1071,
+        "level": 66,
+        "bars": 3,
+        "xp": 150.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Mithril plateskirt",
+        "id": 1085,
+        "level": 66,
+        "bars": 3,
+        "xp": 150.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Mithril platebody",
+        "id": 1121,
+        "level": 68,
+        "bars": 5,
+        "xp": 250.0,
+        "qty": 1,
+        "members": false
+      }
+    ]
+  },
+  {
+    "tier": "Adamant",
+    "bar_name": "Adamantite bar",
+    "bar_id": 2361,
+    "ore_name": "Adamantite ore",
+    "ore_id": 449,
+    "second_name": "Coal",
+    "second_id": 453,
+    "coal_qty_bf": 3,
+    "coal_qty_reg": 6,
+    "smelt_lvl": 70,
+    "smelt_xp": 37.5,
+    "members": false,
+    "items": [
+      {
+        "name": "Adamant dagger",
+        "id": 1211,
+        "level": 70,
+        "bars": 1,
+        "xp": 62.5,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Adamant axe",
+        "id": 1357,
+        "level": 71,
+        "bars": 1,
+        "xp": 62.5,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Adamant pickaxe",
+        "id": 1271,
+        "level": 71,
+        "bars": 1,
+        "xp": 62.5,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Adamant mace",
+        "id": 1430,
+        "level": 72,
+        "bars": 1,
+        "xp": 62.5,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Adamant med helm",
+        "id": 1145,
+        "level": 73,
+        "bars": 1,
+        "xp": 62.5,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Adamant bolts(unf)",
+        "id": 9380,
+        "level": 73,
+        "bars": 1,
+        "xp": 62.5,
+        "qty": 10,
+        "members": true
+      },
+      {
+        "name": "Adamant sword",
+        "id": 1287,
+        "level": 74,
+        "bars": 1,
+        "xp": 62.5,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Adamant dart tip",
+        "id": 823,
+        "level": 74,
+        "bars": 1,
+        "xp": 62.5,
+        "qty": 10,
+        "members": true
+      },
+      {
+        "name": "Adamantite nails",
+        "id": 4823,
+        "level": 74,
+        "bars": 1,
+        "xp": 62.5,
+        "qty": 15,
+        "members": true
+      },
+      {
+        "name": "Adamant scimitar",
+        "id": 1331,
+        "level": 75,
+        "bars": 2,
+        "xp": 125.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Adamant arrowtips",
+        "id": 43,
+        "level": 75,
+        "bars": 1,
+        "xp": 62.5,
+        "qty": 15,
+        "members": true
+      },
+      {
+        "name": "Adamantite limbs",
+        "id": 9429,
+        "level": 76,
+        "bars": 1,
+        "xp": 62.5,
+        "qty": 1,
+        "members": true
+      },
+      {
+        "name": "Adamant longsword",
+        "id": 1301,
+        "level": 76,
+        "bars": 2,
+        "xp": 125.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Adamant full helm",
+        "id": 1161,
+        "level": 77,
+        "bars": 2,
+        "xp": 125.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Adamant knife",
+        "id": 867,
+        "level": 77,
+        "bars": 1,
+        "xp": 62.5,
+        "qty": 5,
+        "members": true
+      },
+      {
+        "name": "Adamant sq shield",
+        "id": 1183,
+        "level": 78,
+        "bars": 2,
+        "xp": 125.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Adamant warhammer",
+        "id": 1345,
+        "level": 79,
+        "bars": 3,
+        "xp": 187.5,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Adamant battleaxe",
+        "id": 1371,
+        "level": 80,
+        "bars": 3,
+        "xp": 187.5,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Adamant chainbody",
+        "id": 1111,
+        "level": 81,
+        "bars": 3,
+        "xp": 187.5,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Adamant kiteshield",
+        "id": 1199,
+        "level": 82,
+        "bars": 3,
+        "xp": 187.5,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Adamant claws",
+        "id": 3099,
+        "level": 83,
+        "bars": 2,
+        "xp": 125.0,
+        "qty": 1,
+        "members": true
+      },
+      {
+        "name": "Adamant 2h sword",
+        "id": 1317,
+        "level": 84,
+        "bars": 3,
+        "xp": 187.5,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Adamant platelegs",
+        "id": 1073,
+        "level": 86,
+        "bars": 3,
+        "xp": 187.5,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Adamant plateskirt",
+        "id": 1091,
+        "level": 86,
+        "bars": 3,
+        "xp": 187.5,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Adamant platebody",
+        "id": 1123,
+        "level": 88,
+        "bars": 5,
+        "xp": 312.5,
+        "qty": 1,
+        "members": false
+      }
+    ]
+  },
+  {
+    "tier": "Rune",
+    "bar_name": "Runite bar",
+    "bar_id": 2363,
+    "ore_name": "Runite ore",
+    "ore_id": 451,
+    "second_name": "Coal",
+    "second_id": 453,
+    "coal_qty_bf": 4,
+    "coal_qty_reg": 8,
+    "smelt_lvl": 85,
+    "smelt_xp": 50.0,
+    "members": false,
+    "items": [
+      {
+        "name": "Rune dagger",
+        "id": 1213,
+        "level": 85,
+        "bars": 1,
+        "xp": 75.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Rune axe",
+        "id": 1359,
+        "level": 86,
+        "bars": 1,
+        "xp": 75.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Rune pickaxe",
+        "id": 1275,
+        "level": 86,
+        "bars": 1,
+        "xp": 75.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Rune mace",
+        "id": 1432,
+        "level": 87,
+        "bars": 1,
+        "xp": 75.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Rune med helm",
+        "id": 1147,
+        "level": 88,
+        "bars": 1,
+        "xp": 75.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Runite bolts (unf)",
+        "id": 9381,
+        "level": 88,
+        "bars": 1,
+        "xp": 75.0,
+        "qty": 10,
+        "members": true
+      },
+      {
+        "name": "Rune sword",
+        "id": 1289,
+        "level": 89,
+        "bars": 1,
+        "xp": 75.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Rune dart tip",
+        "id": 824,
+        "level": 89,
+        "bars": 1,
+        "xp": 75.0,
+        "qty": 10,
+        "members": true
+      },
+      {
+        "name": "Rune nails",
+        "id": 4824,
+        "level": 89,
+        "bars": 1,
+        "xp": 75.0,
+        "qty": 15,
+        "members": true
+      },
+      {
+        "name": "Rune scimitar",
+        "id": 1333,
+        "level": 90,
+        "bars": 2,
+        "xp": 150.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Rune arrowtips",
+        "id": 44,
+        "level": 90,
+        "bars": 1,
+        "xp": 75.0,
+        "qty": 15,
+        "members": true
+      },
+      {
+        "name": "Rune cannonball",
+        "id": 31914,
+        "level": 90,
+        "bars": 1,
+        "xp": 50.5,
+        "qty": 4,
+        "members": true
+      },
+      {
+        "name": "Runite limbs",
+        "id": 9431,
+        "level": 91,
+        "bars": 1,
+        "xp": 75.0,
+        "qty": 1,
+        "members": true
+      },
+      {
+        "name": "Rune longsword",
+        "id": 1303,
+        "level": 91,
+        "bars": 2,
+        "xp": 150.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Rune javelin tips",
+        "id": 19580,
+        "level": 91,
+        "bars": 1,
+        "xp": 75.0,
+        "qty": 5,
+        "members": true
+      },
+      {
+        "name": "Rune full helm",
+        "id": 1163,
+        "level": 92,
+        "bars": 2,
+        "xp": 150.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Rune knife",
+        "id": 868,
+        "level": 92,
+        "bars": 1,
+        "xp": 75.0,
+        "qty": 5,
+        "members": true
+      },
+      {
+        "name": "Rune sq shield",
+        "id": 1185,
+        "level": 93,
+        "bars": 2,
+        "xp": 150.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Rune warhammer",
+        "id": 1347,
+        "level": 94,
+        "bars": 3,
+        "xp": 225.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Rune battleaxe",
+        "id": 1373,
+        "level": 95,
+        "bars": 3,
+        "xp": 225.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Rune chainbody",
+        "id": 1113,
+        "level": 96,
+        "bars": 3,
+        "xp": 225.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Rune kiteshield",
+        "id": 1201,
+        "level": 97,
+        "bars": 3,
+        "xp": 225.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Rune claws",
+        "id": 3101,
+        "level": 98,
+        "bars": 2,
+        "xp": 150.0,
+        "qty": 1,
+        "members": true
+      },
+      {
+        "name": "Rune 2h sword",
+        "id": 1319,
+        "level": 99,
+        "bars": 3,
+        "xp": 225.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Rune platelegs",
+        "id": 1079,
+        "level": 99,
+        "bars": 3,
+        "xp": 225.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Rune plateskirt",
+        "id": 1093,
+        "level": 99,
+        "bars": 3,
+        "xp": 225.0,
+        "qty": 1,
+        "members": false
+      },
+      {
+        "name": "Rune platebody",
+        "id": 1127,
+        "level": 99,
+        "bars": 5,
+        "xp": 375.0,
+        "qty": 1,
+        "members": false
+      }
+    ]
+  }
+]

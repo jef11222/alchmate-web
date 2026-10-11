@@ -34,7 +34,14 @@ import {
   EyeOff,
   ShoppingCart,
   BookOpen,
-  Bell
+  Bell,
+  ChevronDown,
+  ChevronRight,
+  Volume2,
+  VolumeX,
+  Info,
+  ListFilter,
+  Percent
 } from 'lucide-react';
 import geRecipesData from '../data/ge_recipes.json';
 import craftingRecipesData from '../data/crafting_recipes.json';
@@ -42,6 +49,7 @@ import workhorseItemsData from '../data/workhorse_items.json';
 import w308StaplesData from '../data/w308_staples.json';
 import overnightCandidatesData from '../data/overnight_candidates.json';
 import skillingGuidesData from '../data/skilling_guides.json';
+import smithingChainsData from '../data/smithing_chains.json';
 
 interface AlchItem {
   id: number;
@@ -56,15 +64,33 @@ interface AlchItem {
   profit: number;
   hourly_profit: number;
   roi: number;
+  speed_category?: string;
+  speed_label?: string;
+  speed_score?: number;
+  est_minutes?: number;
+  vol_5m_bid?: number;
+  vol_5m_ask?: number;
+  vol_5m_total?: number;
+  secs_since_trade?: number;
   icon?: string;
 }
 
 interface PriceData {
   timestamp: number;
   nature_rune: number;
-  bond: { bid: number; ask: number };
-  latest: Record<string, { high?: number; low?: number }>;
+  bond: { 
+    bid: number; 
+    ask: number;
+    patient_bid?: number;
+    deep_bid?: number;
+    savings?: number;
+    min_7d?: number;
+    max_7d?: number;
+    daily_vol?: number;
+  };
+  latest: Record<string, { high?: number; low?: number; highTime?: number; lowTime?: number }>;
   alch_map?: Record<string, number>;
+  volumes_5m?: Record<string, any>;
   items: AlchItem[];
 }
 
@@ -424,7 +450,7 @@ export default function Dashboard() {
   const [userBatchValue, setUserBatchValue] = useState<number>(0);
 
   // 4h Timers State (stored in localStorage)
-  const [timers, setTimers] = useState<Array<{ id: number; name: string; expiresAt: number; limit: number }>>([]);
+  const [timers, setTimers] = useState<Array<{ id: number; name: string; expiresAt: number; limit: number; qtyBought?: number; account?: string }>>([]);
   const [timerItemSearch, setTimerItemSearch] = useState('');
 
   // 8-Slot Shopping Cart State (stored in localStorage)
@@ -436,6 +462,30 @@ export default function Dashboard() {
   const [tokenCopied, setTokenCopied] = useState(false);
   const [testSyncStatus, setTestSyncStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [testSyncMsg, setTestSyncMsg] = useState<string>('');
+
+  // Bond Roadmap Cushion & Time-to-Goal Engine State
+  const [cushionTier, setCushionTier] = useState<number>(8000000);
+  const [earningMethod, setEarningMethod] = useState<'live' | 'f2p_pure' | 'f2p_mixed' | 'p2p_alch' | 'p2p_herb'>('live');
+  const [dailyPlaytime, setDailyPlaytime] = useState<number>(4);
+
+  // Skilling Guide & Material Tree State
+  const [guideViewMode, setGuideViewMode] = useState<'progression' | 'material_tree' | 'sale_inspector'>('progression');
+  const [guideTargetMargin, setGuideTargetMargin] = useState<number>(0);
+  const [inspItemName, setInspItemName] = useState<string>('Rune 2h sword');
+  const [inspAgreedPrice, setInspAgreedPrice] = useState<number>(37600);
+  const [inspQty, setInspQty] = useState<number>(1000);
+
+  // Crafting Workshop Advanced Table & Strategy State
+  const [craftViewMode, setCraftViewMode] = useState<'table' | 'cards'>('table');
+  const [craftSellStrategy, setCraftSellStrategy] = useState<'patient' | 'instant'>('patient');
+  const [craftTargetMargin, setCraftTargetMargin] = useState<number>(0);
+  const [expandedCraftRows, setExpandedCraftRows] = useState<Record<string, boolean>>({});
+
+  // Dialogs, Modals & Audio Alerts
+  const [quantityModal, setQuantityModal] = useState<{ show: boolean; item: any; qty: number }>({ show: false, item: null, qty: 70 });
+  const [editTimerModal, setEditTimerModal] = useState<{ show: boolean; timerId: number | null; qty: number; name: string; limit: number }>({ show: false, timerId: null, qty: 0, name: '', limit: 70 });
+  const [editSessionModal, setEditSessionModal] = useState<{ show: boolean; entryId: string | null; qty: number; price: number; itemName: string; role: string }>({ show: false, entryId: null, qty: 100, price: 37600, itemName: '', role: 'alch' });
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
 
   // Effective Nature Rune Cost
   const effectiveNatPrice = explorersRing ? 0 : natureRuneOverride;
@@ -645,11 +695,22 @@ export default function Dashboard() {
     return typeFilters.other;
   };
 
-  // Helper for fill speed (matching api.py)
-  const getFillSpeedInfo = (vol: number) => {
-    if (vol >= 5000) return { label: '⚡ Fast', color: 'text-amber-400' };
-    if (vol >= 500) return { label: '⏱️ Steady', color: 'text-cyan-400' };
-    return { label: '🐢 Slow', color: 'text-neutral-500' };
+  // Helper for fill speed (matching authentic api.py:get_fill_speed_info)
+  const getFillSpeedInfo = (item: any) => {
+    if (item && item.speed_label) {
+      const color = item.speed_category === 'fast' ? 'text-amber-400' : item.speed_category === 'steady' ? 'text-cyan-400' : 'text-neutral-500';
+      return { 
+        label: item.speed_label, 
+        color, 
+        category: item.speed_category || 'slow', 
+        score: item.speed_score || 1,
+        sold5m: item.vol_5m_bid || 0
+      };
+    }
+    const vol = typeof item === 'number' ? item : item?.volume || 0;
+    if (vol >= 5000) return { label: '⚡ Fast (~15m)', color: 'text-amber-400', category: 'fast', score: 3, sold5m: 0 };
+    if (vol >= 500) return { label: '⏱️ Steady (~45m)', color: 'text-cyan-400', category: 'steady', score: 2, sold5m: 0 };
+    return { label: '🐢 Slow (>1h)', color: 'text-neutral-500', category: 'slow', score: 1, sold5m: 0 };
   };
 
   // Filtered & Sorted Alch Items (Matching desktop recalculate_alch_table)
@@ -674,10 +735,18 @@ export default function Dashboard() {
         }
 
         const currentProfit = item.highalch - targetBuy - effectiveNatPrice;
-        const effectiveLimit = item.buy_limit || 70;
+        
+        // Cooldown and Volume-Capped Effective Limit (Matching desktop get_effective_limit)
+        const activeTimer = timers.find(t => t.id === item.id && t.expiresAt > Date.now());
+        const baseLimit = item.buy_limit || 70;
+        const boughtSoFar = activeTimer?.qtyBought !== undefined ? activeTimer.qtyBought : (activeTimer ? baseLimit : 0);
+        const remainingLimit = Math.max(0, baseLimit - boughtSoFar);
+        const isVolumeCapped = item.volume > 0 && item.volume < baseLimit;
+        const effectiveLimit = Math.max(0, Math.min(remainingLimit, item.volume > 0 ? item.volume : remainingLimit));
+        
         const batchProfit = currentProfit * effectiveLimit;
         const maxAfford = targetBuy > 0 ? Math.min(effectiveLimit, Math.floor(cashStack / targetBuy)) : 0;
-        const speed = getFillSpeedInfo(item.volume);
+        const speed = getFillSpeedInfo(item);
 
         return {
           ...item,
@@ -687,6 +756,12 @@ export default function Dashboard() {
           batch_profit: batchProfit,
           max_afford: maxAfford,
           speed: speed,
+          base_limit: baseLimit,
+          remaining_limit: remainingLimit,
+          effective_limit: effectiveLimit,
+          is_volume_capped: isVolumeCapped,
+          has_active_timer: !!activeTimer,
+          timer_expires_at: activeTimer?.expiresAt || 0,
           roi: targetBuy > 0 ? (currentProfit / targetBuy) * 100 : 0
         };
       })
@@ -1027,6 +1102,166 @@ export default function Dashboard() {
       }
     }
   };
+
+  // Web Audio Alert Beep
+  const playAlertBeep = useCallback(() => {
+    if (!soundEnabled || typeof window === 'undefined') return;
+    try {
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(880, audioCtx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(440, audioCtx.currentTime + 0.15);
+      gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.15);
+    } catch (e) {
+      // AudioContext blocked
+    }
+  }, [soundEnabled]);
+
+  // Authentic Skilling Guide Bracket Calculations (Matching gui.py:5174-5350)
+  const calculateGuideBracketMetrics = useCallback((b: any, curLvl: number, targetLvl: number) => {
+    const minL = b.min_lvl;
+    const maxL = b.max_lvl;
+    const isCompleted = curLvl >= maxL;
+    const isCurrent = minL <= curLvl && curLvl < maxL;
+    const isLocked = curLvl < minL;
+
+    const xpEa = b.xp_per_action || 1;
+    const curXp = getXpForLevel(curLvl);
+    const targetXp = getXpForLevel(targetLvl);
+
+    let actionsNeeded = 0;
+    let xpNeeded = 0;
+    if (isCompleted) {
+      actionsNeeded = 0;
+    } else {
+      const stepStart = Math.max(curXp, getXpForLevel(minL));
+      const stepEnd = Math.min(targetXp, getXpForLevel(maxL));
+      xpNeeded = Math.max(0, stepEnd - stepStart);
+      actionsNeeded = xpEa > 0 ? Math.ceil(xpNeeded / xpEa) : 0;
+    }
+
+    let displayActions = actionsNeeded;
+    if (displayActions === 0 && curLvl < minL) {
+      const bracketXp = Math.min(getXpForLevel(maxL), targetXp) - getXpForLevel(minL);
+      displayActions = xpEa > 0 && bracketXp > 0 ? Math.ceil(bracketXp / xpEa) : 0;
+    }
+
+    const mats = b.materials || [];
+    const latest = priceData?.latest || {};
+    let matCostEa = 0;
+    const matParts: string[] = [];
+    const totMatsParts: string[] = [];
+
+    for (const m of mats) {
+      const p = latest[String(m.id)]?.low || latest[String(m.id)]?.high || 0;
+      matCostEa += p * m.qty;
+      matParts.push(`${m.qty}x ${m.name}`);
+      if (displayActions > 0) {
+        totMatsParts.push(`${(m.qty * displayActions).toLocaleString()}x ${m.name}`);
+      }
+    }
+
+    const materialsStr = matParts.length > 0 ? matParts.join(' + ') : 'None / Quest';
+    const totMatsStr = isCompleted ? 'Completed' : totMatsParts.length > 0 ? totMatsParts.join(' + ') : materialsStr;
+
+    const outId = b.output_id || 0;
+    const outQty = b.output_qty || 1;
+    const alchVal = priceData?.alch_map?.[String(outId)] || 0;
+    const natCost = b.nature_cost ? effectiveNatPrice : 0;
+    const totalActCost = matCostEa + natCost;
+
+    const profitAlch = b.can_alch && outId > 0 ? ((alchVal * outQty) - totalActCost) : -99999999;
+    const geSellPrice = latest[String(outId)]?.low || 0;
+    const profitGe = b.can_sell_ge && outId > 0 ? (Math.floor(geSellPrice * 0.98 * outQty) - matCostEa) : -99999999;
+
+    const w308Staple = (w308StaplesData as any[]).find(s => s.id === outId || s.name.toLowerCase() === (b.item_name || '').toLowerCase());
+    const profitW308 = w308Staple ? ((w308Staple.w308_buy * outQty) - matCostEa) : -99999999;
+
+    let actionRec = '⚔️ Train / Consume';
+    let bestProfitEa = -matCostEa;
+    let gpXpStr = '0.00 GP/XP';
+    let bracketCostStr = '0 gp';
+
+    if (b.style === 'quest') {
+      actionRec = '📜 Quest Turn-in';
+      bestProfitEa = 0;
+      gpXpStr = 'FREE (0 GP)';
+      bracketCostStr = '0 gp';
+    } else if (profitW308 >= profitGe && profitW308 >= profitAlch && profitW308 > -90000000) {
+      actionRec = '🤝 Bulk Trade (W308)';
+      bestProfitEa = profitW308;
+      const gpPerXp = xpEa > 0 ? bestProfitEa / xpEa : 0;
+      gpXpStr = gpPerXp >= 0 ? `+${gpPerXp.toFixed(2)} GP/XP` : `${gpPerXp.toFixed(2)} GP/XP`;
+      const totCost = bestProfitEa * (actionsNeeded > 0 ? actionsNeeded : displayActions);
+      bracketCostStr = totCost >= 0 ? `+${formatGp(totCost)}` : `-${formatGp(Math.abs(totCost))}`;
+    } else if (profitAlch >= profitGe && b.can_alch && profitAlch > -90000000) {
+      actionRec = '🪄 High Alch';
+      bestProfitEa = profitAlch;
+      const gpPerXp = xpEa > 0 ? bestProfitEa / xpEa : 0;
+      gpXpStr = gpPerXp >= 0 ? `+${gpPerXp.toFixed(2)} GP/XP` : `${gpPerXp.toFixed(2)} GP/XP`;
+      const totCost = bestProfitEa * (actionsNeeded > 0 ? actionsNeeded : displayActions);
+      bracketCostStr = totCost >= 0 ? `+${formatGp(totCost)}` : `-${formatGp(Math.abs(totCost))}`;
+    } else if (b.can_sell_ge && outId > 0 && profitGe > -90000000) {
+      actionRec = '🏪 Sell on GE';
+      bestProfitEa = profitGe;
+      const gpPerXp = xpEa > 0 ? bestProfitEa / xpEa : 0;
+      gpXpStr = gpPerXp >= 0 ? `+${gpPerXp.toFixed(2)} GP/XP` : `${gpPerXp.toFixed(2)} GP/XP`;
+      const totCost = bestProfitEa * (actionsNeeded > 0 ? actionsNeeded : displayActions);
+      bracketCostStr = totCost >= 0 ? `+${formatGp(totCost)}` : `-${formatGp(Math.abs(totCost))}`;
+    } else {
+      actionRec = '⚔️ Train / Consume';
+      bestProfitEa = -matCostEa;
+      const gpPerXp = xpEa > 0 ? bestProfitEa / xpEa : 0;
+      gpXpStr = `${gpPerXp.toFixed(2)} GP/XP`;
+      const totCost = bestProfitEa * (actionsNeeded > 0 ? actionsNeeded : displayActions);
+      bracketCostStr = `-${formatGp(Math.abs(totCost))}`;
+    }
+
+    let maxBuyStr = '--';
+    const effAlchRev = b.can_alch && alchVal > 0 ? (alchVal * outQty - natCost) : -99999999;
+    const effGeRev = b.can_sell_ge && outId > 0 ? Math.floor(geSellPrice * 0.98 * outQty) : -99999999;
+    const bestRev = Math.max(effAlchRev, effGeRev, profitW308 > -90000000 ? (w308Staple?.w308_buy * outQty) : -99999999);
+
+    if (mats.length > 0 && bestRev > -99999999) {
+      const primaryMat = mats[0];
+      const secCost = mats.slice(1).reduce((sum: number, m: any) => {
+        const p = latest[String(m.id)]?.low || latest[String(m.id)]?.high || 0;
+        return sum + p * m.qty;
+      }, 0);
+      const breakevenP = Math.floor((bestRev - secCost) / (primaryMat.qty || 1));
+      maxBuyStr = `≤ ${breakevenP.toLocaleString()} gp`;
+    } else if (b.style === 'quest') {
+      maxBuyStr = 'FREE';
+    }
+
+    const xpRate = b.xp_rate || 50000;
+    const hrs = xpRate > 0 && xpNeeded > 0 ? xpNeeded / xpRate : 0;
+    const timeEstStr = hrs >= 1 ? `~${hrs.toFixed(1)}h` : hrs > 0 ? `~${Math.round(hrs * 60)}m` : '0m';
+
+    return {
+      isCompleted,
+      isCurrent,
+      isLocked,
+      actionsNeeded,
+      displayActions,
+      materialsStr,
+      totMatsStr,
+      actionRec,
+      bestProfitEa,
+      gpXpStr,
+      bracketCostStr,
+      maxBuyStr,
+      timeEstStr,
+      xpRate
+    };
+  }, [priceData, effectiveNatPrice]);
 
   // OSRS Offer-X In-Game Trade Shorthand (e.g. 7580k, 15m)
   const getOfferXShorthand = (amount: number) => {
@@ -1389,11 +1624,16 @@ export default function Dashboard() {
   // DYNAMIC 229 GE PRODUCTION RECIPES ENGINE
   const computedGeRecipes = useMemo(() => {
     const latest = priceData?.latest || {};
+    const volumes = (priceData as any)?.volumes || {};
     return (geRecipesData as any[]).map((r) => {
       const outputId = String(r.output_id);
       const outputPrices = latest[outputId];
-      const outputSellPrice = outputPrices?.high || outputPrices?.low || 0;
-      const taxedOutput = Math.floor(outputSellPrice * 0.99); // 1% GE tax
+      // Sell Strategy: 'patient' uses high price, 'instant' uses low price
+      const outputSellPrice = craftSellStrategy === 'patient'
+        ? (outputPrices?.high || outputPrices?.low || 0)
+        : (outputPrices?.low || outputPrices?.high || 0);
+      const rawTax = Math.floor(outputSellPrice * 0.02);
+      const taxedOutput = outputSellPrice - Math.min(5000000, rawTax);
 
       let totalMaterialCost = 0;
       let hasAllPrices = true;
@@ -1414,6 +1654,11 @@ export default function Dashboard() {
       const hourlyActions = r.hourly_actions || 1400;
       const hourlyProfit = netProfit * hourlyActions;
       const xpRate = (r.xp || 0) * hourlyActions;
+      const roi = totalMaterialCost > 0 ? (netProfit / totalMaterialCost) * 100 : 0;
+      const limit = r.limit || 70;
+      const batchProfit = netProfit * limit;
+      const vol = volumes[outputId] || 1000;
+      const speed = vol > 5000 ? '⚡ Rapid' : vol > 500 ? '🟢 Steady' : '🐢 Slow';
 
       return {
         ...r,
@@ -1422,16 +1667,22 @@ export default function Dashboard() {
         net_profit: netProfit,
         hourly_profit: hourlyProfit,
         xp_rate: xpRate,
+        roi,
+        limit,
+        batch_profit: batchProfit,
+        volume: vol,
+        speed,
         materials_detailed: materialsWithPrices,
         is_viable: hasAllPrices && outputSellPrice > 0
       };
     });
-  }, [priceData]);
+  }, [priceData, craftSellStrategy]);
 
   // DYNAMIC 223 CRAFT & ALCH RECIPES ENGINE
   const computedCraftAlchRecipes = useMemo(() => {
     const latest = priceData?.latest || {};
     const alchMap = priceData?.alch_map || {};
+    const volumes = (priceData as any)?.volumes || {};
 
     return (craftingRecipesData as any[]).map((r) => {
       const outputId = String(r.output_id);
@@ -1460,6 +1711,11 @@ export default function Dashboard() {
       const hourlyActions = 1200;
       const hourlyProfit = craftAndAlchProfit * hourlyActions;
       const xpRate = (r.xp || 0) * hourlyActions;
+      const roi = totalMaterialCost > 0 ? (craftAndAlchProfit / totalMaterialCost) * 100 : 0;
+      const limit = r.limit || 70;
+      const batchProfit = craftAndAlchProfit * limit;
+      const vol = volumes[outputId] || 1000;
+      const speed = vol > 5000 ? '⚡ Rapid' : vol > 500 ? '🟢 Steady' : '🐢 Slow';
 
       return {
         ...r,
@@ -1470,6 +1726,11 @@ export default function Dashboard() {
         hourly_profit: hourlyProfit,
         bonus_vs_buy: bonusVsBuy,
         xp_rate: xpRate,
+        roi,
+        limit,
+        batch_profit: batchProfit,
+        volume: vol,
+        speed,
         materials_detailed: materialsWithPrices,
         is_viable: hasAllPrices && outputHighAlch > 0
       };
@@ -1487,12 +1748,13 @@ export default function Dashboard() {
         const userLevel = playerLevels[skillKey] || 1;
         if (r.level && r.level > userLevel) return false;
       }
+      if (craftTargetMargin > 0 && r.net_profit < craftTargetMargin) return false;
       if (craftSearch) {
         return r.name.toLowerCase().includes(craftSearch.toLowerCase());
       }
       return true;
     }).sort((a, b) => b.hourly_profit - a.hourly_profit);
-  }, [computedGeRecipes, craftSkillFilter, onlyUsableRecipes, playerLevels, craftSearch]);
+  }, [computedGeRecipes, craftSkillFilter, onlyUsableRecipes, playerLevels, craftSearch, craftTargetMargin]);
 
   // Filtered Craft & Alch Recipes
   const filteredCraftAlchRecipes = useMemo(() => {
@@ -1505,22 +1767,49 @@ export default function Dashboard() {
         const userLevel = playerLevels[skillKey] || 1;
         if (r.level && r.level > userLevel) return false;
       }
+      if (craftTargetMargin > 0 && r.profit < craftTargetMargin) return false;
       if (craftSearch) {
         return r.name.toLowerCase().includes(craftSearch.toLowerCase());
       }
       return true;
     }).sort((a, b) => b.hourly_profit - a.hourly_profit);
-  }, [computedCraftAlchRecipes, craftSkillFilter, onlyUsableRecipes, playerLevels, craftSearch]);
+  }, [computedCraftAlchRecipes, craftSkillFilter, onlyUsableRecipes, playerLevels, craftSearch, craftTargetMargin]);
 
-  // Bond Calculations
+  // Authentic Bond Roadmap & Time-to-Goal Engine Calculations
   const bondPrice = priceData?.bond?.ask || 11786000;
-  const bondBid = priceData?.bond?.bid || 11327000;
-  const bondSavings = Math.max(0, bondPrice - bondBid);
+  const bondAsk = bondPrice;
+  const bondBid = priceData?.bond?.patient_bid || priceData?.bond?.bid || 11327000;
+  const bondSavings = Math.max(0, bondAsk - bondBid);
+  const bondMin7d = priceData?.bond?.min_7d || 11100000;
+  const bondMax7d = priceData?.bond?.max_7d || 12200000;
+  const bondDailyVol = priceData?.bond?.daily_vol || 4500;
+
   const totalNetWorth = userCoins + (userNats * effectiveNatPrice) + userBatchValue;
-  const bondProgressPct = Math.min(100, Math.max(0, (totalNetWorth / bondPrice) * 100));
-  const remainingGp = Math.max(0, bondPrice - totalNetWorth);
-  const avgHourlyProfit = 650000;
-  const hoursRemaining = (remainingGp / avgHourlyProfit).toFixed(1);
+  const totalBondGoal = bondAsk + cushionTier;
+  const remainingTotalGp = Math.max(0, totalBondGoal - totalNetWorth);
+  const remainingGp = Math.max(0, bondAsk - totalNetWorth);
+  const bondProgressPct = Math.min(100, Math.max(0, (totalNetWorth / bondAsk) * 100));
+
+  // Dynamic earning rates derived from live pool or presets
+  const liveTopHourlyProfit = filteredAlchItems.length > 0 && filteredAlchItems[0]?.hourly_profit > 0 
+    ? filteredAlchItems[0].hourly_profit 
+    : 850000;
+  const methodEarningRate = useMemo(() => {
+    switch (earningMethod) {
+      case 'live': return liveTopHourlyProfit;
+      case 'f2p_pure': return 450000;
+      case 'f2p_mixed': return 650000;
+      case 'p2p_alch': return 1200000;
+      case 'p2p_herb': return 1800000;
+      default: return 650000;
+    }
+  }, [earningMethod, liveTopHourlyProfit]);
+
+  const grindHoursToGoal = methodEarningRate > 0 ? (remainingTotalGp / methodEarningRate) : 0;
+  const daysToGoal = dailyPlaytime > 0 ? (grindHoursToGoal / dailyPlaytime) : 0;
+  const avgProfitPerAlch = Math.max(100, Math.floor(methodEarningRate / 1200));
+  const alchsNeededToGoal = Math.ceil(remainingTotalGp / avgProfitPerAlch);
+  const hoursRemaining = grindHoursToGoal.toFixed(1);
 
   // Cart Status Calculations
   const cartAllocated = cartItems.reduce((acc, c) => acc + (c.buyPrice * c.limit), 0);
@@ -1548,22 +1837,67 @@ export default function Dashboard() {
     setTimeout(() => setCopiedAdItem(null), 2000);
   };
 
-  const handleAddTimer = (item: { id: number; name: string; buy_limit?: number }) => {
+  const handleAddTimer = (item: { id: number; name: string; buy_limit?: number }, qtyBought?: number) => {
+    const baseLimit = item.buy_limit || 70;
+    const bought = qtyBought !== undefined ? qtyBought : baseLimit;
     const newEntry = {
       id: item.id,
       name: item.name,
       expiresAt: Date.now() + 4 * 3600 * 1000,
-      limit: item.buy_limit || 70
+      limit: baseLimit,
+      qtyBought: bought
     };
     const updated = [...timers.filter(t => t.id !== item.id), newEntry];
     setTimers(updated);
     localStorage.setItem('alchmate_timers', JSON.stringify(updated));
+    showToast(`⏱️ Started 4h timer for ${item.name} (${bought}/${baseLimit} bought)!`);
+  };
+
+  const handleResetTimer = (id: number) => {
+    const updated = timers.map(t => t.id === id ? { ...t, expiresAt: Date.now() + 4 * 3600 * 1000 } : t);
+    setTimers(updated);
+    localStorage.setItem('alchmate_timers', JSON.stringify(updated));
+    showToast('🔄 Timer reset to 4h!');
+  };
+
+  const handleUpdateTimerQty = (id: number, newQty: number) => {
+    const updated = timers.map(t => t.id === id ? { ...t, qtyBought: Math.max(0, Math.min(t.limit, newQty)) } : t);
+    setTimers(updated);
+    localStorage.setItem('alchmate_timers', JSON.stringify(updated));
+    showToast(`✓ Updated quantity bought to ${newQty}`);
+    setEditTimerModal({ show: false, timerId: null, qty: 0, name: '', limit: 70 });
   };
 
   const handleDeleteTimer = (id: number) => {
     const updated = timers.filter(t => t.id !== id);
     setTimers(updated);
     localStorage.setItem('alchmate_timers', JSON.stringify(updated));
+  };
+
+  const handleSaveEditSession = () => {
+    if (!editSessionModal.entryId) return;
+    const itemMatch = priceData?.items?.find(i => i.name.toLowerCase() === editSessionModal.itemName.toLowerCase());
+    const highAlch = itemMatch ? itemMatch.highalch : 38400;
+    const totalCoins = editSessionModal.qty * editSessionModal.price;
+    const netProfit = (editSessionModal.qty * highAlch) - totalCoins - (editSessionModal.qty * effectiveNatPrice);
+
+    const updated = sessionLog.map(s => {
+      if (s.id === editSessionModal.entryId) {
+        return {
+          ...s,
+          qty: editSessionModal.qty,
+          price: editSessionModal.price,
+          totalCoins,
+          netProfit,
+          magicXp: editSessionModal.qty * 65
+        };
+      }
+      return s;
+    });
+    setSessionLog(updated);
+    localStorage.setItem('alchmate_session_log', JSON.stringify(updated));
+    setEditSessionModal({ show: false, entryId: null, qty: 100, price: 37600, itemName: '', role: 'alch' });
+    showToast('✓ Updated session ledger entry!');
   };
 
   const handleExportCSV = () => {
@@ -2678,9 +3012,96 @@ export default function Dashboard() {
                     </span>
                   </div>
                   <div className="text-xs text-neutral-400">
-                    Bypass the 4-hour 70-unit GE buy limit and save 1% GE tax by trading bulk noted items directly!
+                    Bypass the 4-hour 70-unit GE buy limit and save 2% GE tax (capped at 5M) by trading bulk noted items directly!
                   </div>
                 </div>
+
+                {/* Quick Clan Trade Ad Copy Buttons */}
+                <div className="bg-[#14171f] p-3.5 rounded-xl border border-[#242b3b] flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-neutral-300 uppercase tracking-wider flex items-center gap-1.5">
+                      <Send className="w-3.5 h-3.5 text-amber-400" /> Quick Clan Trade Ads:
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={() => {
+                        const ad = 'Buying R2H 37.6k ea Bulk - Trade Me';
+                        navigator.clipboard.writeText(ad);
+                        showToast(`📢 Copied: "${ad}"`);
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-[#191e28] hover:bg-[#252c3c] border border-[#242c3d] text-xs font-semibold text-white transition-all flex items-center gap-1.5"
+                    >
+                      ⚔️ R2H Buyer Ad (37.6k)
+                    </button>
+                    <button
+                      onClick={() => {
+                        const ad = 'Buying Rune legs / skirts 37.6k ea Bulk - Trade Me';
+                        navigator.clipboard.writeText(ad);
+                        showToast(`📢 Copied: "${ad}"`);
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-[#191e28] hover:bg-[#252c3c] border border-[#242c3d] text-xs font-semibold text-white transition-all flex items-center gap-1.5"
+                    >
+                      🛡️ Legs / Skirts Ad (37.6k)
+                    </button>
+                    <button
+                      onClick={() => {
+                        const ad = 'Buying Rune 2h/legs/skirts/baxe/b-staff bulk - Trade Me';
+                        navigator.clipboard.writeText(ad);
+                        showToast(`📢 Copied: "${ad}"`);
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-[#191e28] hover:bg-[#252c3c] border border-[#242c3d] text-xs font-semibold text-amber-400 transition-all flex items-center gap-1.5"
+                    >
+                      📦 Multi-Item Buyer Ad
+                    </button>
+                  </div>
+                </div>
+
+                {/* Active Money Stack & Top Stack Pick Banner */}
+                {(() => {
+                  const activeBudget = unlimitedBudget ? 999999999 : cashStack;
+                  let topPick: any = null;
+                  for (const it of w308Items) {
+                    if (it.trade_price > 0 && it.trade_price <= activeBudget) {
+                      const qty = Math.floor(activeBudget / it.trade_price);
+                      const totalProf = qty * it.profit_ea;
+                      if (!topPick || totalProf > topPick.totalProf) {
+                        topPick = { ...it, qty, totalProf };
+                      }
+                    }
+                  }
+
+                  return (
+                    <div className="bg-[#14171f] p-4 rounded-xl border border-amber-500/30 flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                            🏆 Top Stack Pick: {topPick?.name || 'Rune 2h sword'}
+                          </span>
+                          <span className="text-[10px] bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded font-mono font-bold">
+                            Active Stack: {formatGp(cashStack)}
+                          </span>
+                        </div>
+                        <p className="text-xs text-neutral-300">
+                          Capacity: <strong>{topPick?.qty?.toLocaleString() || 0} units</strong> | Expected Net Profit: <strong className="text-emerald-400">+{formatGp(topPick?.totalProf || 0)}</strong> ({topPick?.profit_ea || 0} gp/ea)
+                        </p>
+                      </div>
+                      {topPick && (
+                        <button
+                          onClick={() => {
+                            setW308SelectedItem(topPick.name);
+                            setW308AgreedPrice(topPick.trade_price);
+                            setW308Qty(topPick.qty);
+                            showToast(`🎯 Allocated full stack (${formatGp(cashStack)}) to ${topPick.name}!`);
+                          }}
+                          className="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold transition-all shadow-md shadow-amber-500/20 flex items-center gap-1.5 shrink-0"
+                        >
+                          🎯 Allocate Full Stack to Top Pick
+                        </button>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {/* Anti-Scam Bulk Trade Calculator & 2nd Screen Verifier (Desktop gui.py:2174-2283) */}
                 <div className="bg-[#14171f] p-6 rounded-2xl border border-[#242b3b] space-y-4">
@@ -3312,6 +3733,7 @@ export default function Dashboard() {
                     { id: 'Smithing', label: '🔨 Smithing' },
                     { id: 'Fletching', label: '🏹 Fletching' },
                     { id: 'Magic', label: '🔮 Magic' },
+                    { id: 'Cooking', label: '🍳 Cooking' },
                   ].map((cat) => (
                     <button
                       key={cat.id}
@@ -3342,7 +3764,7 @@ export default function Dashboard() {
                   </label>
                 </div>
 
-                {/* Level Quick Inputs */}
+                {/* Level Quick Inputs including Cooking */}
                 <div className="flex flex-wrap items-center gap-3 text-neutral-400 font-medium">
                   <span className="text-[11px] text-neutral-500">Your Levels:</span>
                   {[
@@ -3351,6 +3773,7 @@ export default function Dashboard() {
                     { key: 'fletching', label: 'Fletch' },
                     { key: 'magic', label: 'Mage' },
                     { key: 'herblore', label: 'Herb' },
+                    { key: 'cooking', label: 'Cook' },
                   ].map((s) => (
                     <div key={s.key} className="flex items-center gap-1 bg-[#191e28] px-2 py-0.5 rounded border border-[#252c3c]">
                       <span>{s.label}:</span>
@@ -3364,157 +3787,501 @@ export default function Dashboard() {
                   ))}
                 </div>
               </div>
+
+              {/* Advanced Strategy & Layout Controls Bar */}
+              <div className="flex flex-wrap items-center justify-between pt-2 border-t border-[#1e2433] text-xs gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-neutral-400 font-semibold">View Mode:</span>
+                  <button
+                    onClick={() => setCraftViewMode('table')}
+                    className={`px-3 py-1 rounded-lg font-bold border transition-all flex items-center gap-1.5 ${
+                      craftViewMode === 'table'
+                        ? 'bg-amber-500 text-black border-amber-400 shadow'
+                        : 'bg-[#1b202c] text-neutral-300 border-[#2b3547] hover:bg-[#222a3a]'
+                    }`}
+                  >
+                    <ListFilter className="w-3.5 h-3.5" /> Full Data Table
+                  </button>
+                  <button
+                    onClick={() => setCraftViewMode('cards')}
+                    className={`px-3 py-1 rounded-lg font-bold border transition-all flex items-center gap-1.5 ${
+                      craftViewMode === 'cards'
+                        ? 'bg-amber-500 text-black border-amber-400 shadow'
+                        : 'bg-[#1b202c] text-neutral-300 border-[#2b3547] hover:bg-[#222a3a]'
+                    }`}
+                  >
+                    <Layers className="w-3.5 h-3.5" /> Recipe Cards
+                  </button>
+                </div>
+
+                {craftSubTab === 'ge_sell' && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-neutral-400 font-semibold">Sell Strategy:</span>
+                    <button
+                      onClick={() => setCraftSellStrategy('patient')}
+                      className={`px-2.5 py-1 rounded text-[11px] font-bold border transition-all ${
+                        craftSellStrategy === 'patient'
+                          ? 'bg-emerald-500 text-black border-emerald-400'
+                          : 'bg-[#1b202c] text-neutral-400 border-[#2b3547]'
+                      }`}
+                      title="Sell at Ask Price (Patient margin)"
+                    >
+                      🧘 Patient (Ask)
+                    </button>
+                    <button
+                      onClick={() => setCraftSellStrategy('instant')}
+                      className={`px-2.5 py-1 rounded text-[11px] font-bold border transition-all ${
+                        craftSellStrategy === 'instant'
+                          ? 'bg-amber-500 text-black border-amber-400'
+                          : 'bg-[#1b202c] text-neutral-400 border-[#2b3547]'
+                      }`}
+                      title="Sell at Bid Price (Instant dump)"
+                    >
+                      ⚡ Instant (Bid)
+                    </button>
+                  </div>
+                )}
+
+                <div className="flex items-center gap-2">
+                  <span className="text-neutral-400 font-semibold">Target Margin:</span>
+                  <input
+                    type="number"
+                    value={craftTargetMargin || ''}
+                    placeholder="Min Profit (GP)"
+                    onChange={(e) => setCraftTargetMargin(Number(e.target.value) || 0)}
+                    className="w-28 bg-[#1b202c] border border-[#2e374d] rounded px-2 py-1 text-white font-mono text-xs"
+                  />
+                </div>
+              </div>
             </div>
             )}
 
             {/* MODE 1: CRAFT & SELL GE (229 RECIPES) */}
             {craftSubTab === 'ge_sell' && (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {filteredGeRecipes.map((recipe, idx) => (
-                  <div key={idx} className="bg-[#14171f] p-4 rounded-xl border border-[#242b3b] hover:border-amber-500/30 transition-all flex flex-col justify-between">
-                    <div>
-                      <div className="flex items-start justify-between mb-1.5">
-                        <div className="flex items-center gap-2">
-                          <img
-                            src={`https://static.runelite.net/cache/item/icon/${recipe.output_id}.png`}
-                            alt=""
-                            className="w-6 h-6 object-contain shrink-0"
-                            onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                          />
-                          <h3 className="font-bold text-white text-base">{recipe.name}</h3>
-                        </div>
-                        <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-[#1e2433] text-amber-400 border border-[#2d374d]">
-                          {recipe.skill || 'Crafting'} {recipe.level ? `Lvl ${recipe.level}` : ''}
-                        </span>
-                      </div>
+              craftViewMode === 'table' ? (
+                <div className="bg-[#14171f] rounded-xl border border-[#242b3b] overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs font-mono">
+                      <thead className="bg-[#1a1f2b] text-neutral-400 uppercase text-[10px] border-b border-[#262e3f] select-none">
+                        <tr>
+                          <th className="px-3 py-2.5 text-center">Exp</th>
+                          <th className="px-3 py-2.5">Recipe / Product</th>
+                          <th className="px-3 py-2.5">Skill / Req</th>
+                          <th className="px-3 py-2.5 text-right" title="GE net revenue after 2% tax">GE Net (2% tax)</th>
+                          <th className="px-3 py-2.5 text-right" title="Total ingredient cost">Mat Cost</th>
+                          <th className="px-3 py-2.5 text-right text-emerald-400" title="Net profit per single crafting action">Profit / Ea</th>
+                          <th className="px-3 py-2.5 text-right" title="Return on material investment">ROI %</th>
+                          <th className="px-3 py-2.5 text-center" title="4-hour Grand Exchange limit">Limit</th>
+                          <th className="px-3 py-2.5 text-right text-amber-400" title="Profit across full 4h limit">Batch Profit</th>
+                          <th className="px-3 py-2.5 text-right text-emerald-300" title="Hourly profit rate at standard actions/hr">Hourly Profit</th>
+                          <th className="px-3 py-2.5 text-center" title="Trading velocity">Fill Speed</th>
+                          <th className="px-3 py-2.5 text-right" title="Experience gained per hour">XP Rate</th>
+                          <th className="px-3 py-2.5 text-center">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#1e2433]">
+                        {filteredGeRecipes.map((r: any, idx: number) => {
+                          const isExpanded = !!expandedCraftRows[r.name];
+                          const inCart = cartItems.some(c => c.id === r.output_id);
+                          return (
+                            <React.Fragment key={idx}>
+                              <tr
+                                onClick={() => setExpandedCraftRows(prev => ({ ...prev, [r.name]: !prev[r.name] }))}
+                                className={`hover:bg-[#1a202c]/70 transition-colors cursor-pointer ${isExpanded ? 'bg-[#1a2233]' : ''}`}
+                              >
+                                <td className="px-3 py-2.5 text-center text-neutral-400">
+                                  {isExpanded ? <ChevronDown className="w-3.5 h-3.5 inline text-amber-400" /> : <ChevronRight className="w-3.5 h-3.5 inline" />}
+                                </td>
+                                <td className="px-3 py-2.5 font-sans font-bold text-white flex items-center gap-2">
+                                  <img
+                                    src={`https://static.runelite.net/cache/item/icon/${r.output_id}.png`}
+                                    alt=""
+                                    className="w-5 h-5 object-contain shrink-0"
+                                    onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                                  />
+                                  <span>{r.name}</span>
+                                </td>
+                                <td className="px-3 py-2.5">
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#1e2433] text-amber-300 font-semibold border border-[#2d374d]">
+                                    {r.skill} {r.level ? `Lvl ${r.level}` : ''}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2.5 text-right text-neutral-300">
+                                  {r.output_sell_price > 0 ? `${(r.net_profit + r.material_cost).toLocaleString()} gp` : '—'}
+                                </td>
+                                <td className="px-3 py-2.5 text-right text-neutral-400">
+                                  {r.material_cost.toLocaleString()} gp
+                                </td>
+                                <td className={`px-3 py-2.5 text-right font-bold ${r.net_profit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                  {r.net_profit >= 0 ? `+${r.net_profit.toLocaleString()}` : r.net_profit.toLocaleString()} gp
+                                </td>
+                                <td className={`px-3 py-2.5 text-right font-semibold ${r.roi >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                  {r.roi.toFixed(1)}%
+                                </td>
+                                <td className="px-3 py-2.5 text-center text-neutral-300">
+                                  {r.limit.toLocaleString()}
+                                </td>
+                                <td className={`px-3 py-2.5 text-right font-extrabold ${r.batch_profit >= 0 ? 'text-amber-400' : 'text-neutral-500'}`}>
+                                  {r.batch_profit >= 0 ? `+${formatGp(r.batch_profit)}` : `-${formatGp(Math.abs(r.batch_profit))}`}
+                                </td>
+                                <td className={`px-3 py-2.5 text-right font-bold ${r.hourly_profit >= 0 ? 'text-emerald-300' : 'text-neutral-500'}`}>
+                                  {r.hourly_profit >= 0 ? `+${formatGp(r.hourly_profit)}/hr` : `-${formatGp(Math.abs(r.hourly_profit))}/hr`}
+                                </td>
+                                <td className="px-3 py-2.5 text-center">
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-300 font-sans">
+                                    {r.speed}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2.5 text-right text-cyan-400">
+                                  +{r.xp} XP ({((r.xp_rate || 0) / 1000).toFixed(0)}k/h)
+                                </td>
+                                <td className="px-3 py-2.5 text-center" onClick={(e) => e.stopPropagation()}>
+                                  <button
+                                    onClick={() => handleToggleCart({ id: r.output_id, name: r.name, buy_price: r.material_cost, buy_limit: r.limit, profit: r.net_profit })}
+                                    className={`px-2 py-0.5 rounded text-[10px] font-bold font-sans transition-all border ${inCart ? 'bg-emerald-500 text-black border-emerald-400' : 'bg-amber-500/10 hover:bg-amber-500 hover:text-black text-amber-300 border-amber-500/30'}`}
+                                  >
+                                    {inCart ? '✓ Cart' : '+ Cart'}
+                                  </button>
+                                </td>
+                              </tr>
 
-                      {/* Materials list */}
-                      <div className="text-xs text-neutral-400 mb-3 space-y-0.5">
-                        {(recipe.materials || []).map((m: any, mIdx: number) => (
-                          <div key={mIdx} className="flex justify-between">
-                            <span>{m.qty}x {m.name}</span>
-                            <span className="font-mono text-neutral-500">
-                              {m.unit_price > 0 ? `${(m.unit_price * m.qty).toLocaleString()} gp` : ''}
+                              {/* Expandable Ingredient Sub-Row */}
+                              {isExpanded && (
+                                <tr className="bg-[#121622]">
+                                  <td colSpan={13} className="px-6 py-3 border-t border-b border-[#242c3d]">
+                                    <div className="space-y-2">
+                                      <div className="flex justify-between items-center text-xs">
+                                        <span className="font-bold text-amber-400 font-sans flex items-center gap-1.5">
+                                          📦 Ingredient Recipe Breakdown &amp; Breakeven Ceilings:
+                                        </span>
+                                        <span className="text-[11px] text-neutral-400">
+                                          Actions/hr: ~{r.hourly_actions || 1400} | 2% GE Tax Deducted
+                                        </span>
+                                      </div>
+                                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                        {(r.materials_detailed || []).map((m: any, mIdx: number) => {
+                                          const taxedRev = r.net_profit + r.material_cost;
+                                          const otherCost = r.material_cost - (m.unit_price * (m.qty || 1));
+                                          const maxCeiling = Math.floor((taxedRev - otherCost) / (m.qty || 1));
+                                          return (
+                                            <div key={mIdx} className="bg-[#191e28] p-2.5 rounded-lg border border-[#262f40] space-y-1">
+                                              <div className="flex justify-between items-center text-xs">
+                                                <span className="font-bold text-white flex items-center gap-1.5">
+                                                  <img
+                                                    src={`https://static.runelite.net/cache/item/icon/${m.id}.png`}
+                                                    alt=""
+                                                    className="w-4 h-4 object-contain"
+                                                    onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                                                  />
+                                                  {m.qty}x {m.name}
+                                                </span>
+                                                <span className="text-neutral-400 font-mono">{(m.unit_price * m.qty).toLocaleString()} gp</span>
+                                              </div>
+                                              <div className="flex justify-between text-[11px] text-neutral-400 pt-1 border-t border-white/5">
+                                                <span>Unit Price: {m.unit_price.toLocaleString()} gp</span>
+                                                <span className="text-amber-300 font-semibold">Max Buy: ≤ {maxCeiling.toLocaleString()} gp</span>
+                                              </div>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
+                            </React.Fragment>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {filteredGeRecipes.map((recipe, idx) => (
+                    <div key={idx} className="bg-[#14171f] p-4 rounded-xl border border-[#242b3b] hover:border-amber-500/30 transition-all flex flex-col justify-between">
+                      <div>
+                        <div className="flex items-start justify-between mb-1.5">
+                          <div className="flex items-center gap-2">
+                            <img
+                              src={`https://static.runelite.net/cache/item/icon/${recipe.output_id}.png`}
+                              alt=""
+                              className="w-6 h-6 object-contain shrink-0"
+                              onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                            />
+                            <h3 className="font-bold text-white text-base">{recipe.name}</h3>
+                          </div>
+                          <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-[#1e2433] text-amber-400 border border-[#2d374d]">
+                            {recipe.skill || 'Crafting'} {recipe.level ? `Lvl ${recipe.level}` : ''}
+                          </span>
+                        </div>
+
+                        {/* Materials list */}
+                        <div className="text-xs text-neutral-400 mb-3 space-y-0.5">
+                          {(recipe.materials || []).map((m: any, mIdx: number) => (
+                            <div key={mIdx} className="flex justify-between">
+                              <span>{m.qty}x {m.name}</span>
+                              <span className="font-mono text-neutral-500">
+                                {m.unit_price > 0 ? `${(m.unit_price * m.qty).toLocaleString()} gp` : ''}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Live Financial & XP Stats */}
+                        <div className="space-y-1.5 text-xs text-neutral-300 bg-[#191e28] p-3 rounded-lg border border-[#222a3a]">
+                          <div className="flex justify-between">
+                            <span className="text-neutral-400">Total Material Cost:</span>
+                            <span className="font-mono">{recipe.material_cost.toLocaleString()} gp</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-neutral-400">GE Sell (after 2% tax):</span>
+                            <span className="font-mono text-neutral-200">
+                              {recipe.output_sell_price > 0 ? `${(recipe.net_profit + recipe.material_cost).toLocaleString()} gp` : '—'}
                             </span>
                           </div>
-                        ))}
-                      </div>
-
-                      {/* Live Financial & XP Stats */}
-                      <div className="space-y-1.5 text-xs text-neutral-300 bg-[#191e28] p-3 rounded-lg border border-[#222a3a]">
-                        <div className="flex justify-between">
-                          <span className="text-neutral-400">Total Material Cost:</span>
-                          <span className="font-mono">{recipe.material_cost.toLocaleString()} gp</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-neutral-400">GE Sell (after tax):</span>
-                          <span className="font-mono text-neutral-200">
-                            {recipe.output_sell_price > 0 ? `${Math.floor(recipe.output_sell_price * 0.99).toLocaleString()} gp` : '—'}
-                          </span>
-                        </div>
-                        <div className="flex justify-between pt-1 border-t border-[#232938]">
-                          <span className="text-neutral-400">Net Profit / Action:</span>
-                          <span className={`font-mono font-bold ${recipe.net_profit > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                            {recipe.net_profit > 0 ? `+${recipe.net_profit.toLocaleString()}` : recipe.net_profit.toLocaleString()} gp
-                          </span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-neutral-400">Est. Hourly Profit:</span>
-                          <span className={`font-mono font-extrabold ${recipe.hourly_profit > 0 ? 'text-amber-400' : 'text-neutral-500'}`}>
-                            {recipe.hourly_profit > 0 ? `+${(recipe.hourly_profit / 1000).toFixed(0)}k/hr` : `${(recipe.hourly_profit / 1000).toFixed(0)}k/hr`}
-                          </span>
-                        </div>
-                        <div className="flex justify-between text-cyan-400 font-semibold">
-                          <span>XP Rate:</span>
-                          <span>+{recipe.xp} XP ({(recipe.xp_rate / 1000).toFixed(0)}k XP/hr)</span>
+                          <div className="flex justify-between pt-1 border-t border-[#232938]">
+                            <span className="text-neutral-400">Net Profit / Action:</span>
+                            <span className={`font-mono font-bold ${recipe.net_profit > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                              {recipe.net_profit > 0 ? `+${recipe.net_profit.toLocaleString()}` : recipe.net_profit.toLocaleString()} gp
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-neutral-400">Est. Hourly Profit:</span>
+                            <span className={`font-mono font-extrabold ${recipe.hourly_profit > 0 ? 'text-amber-400' : 'text-neutral-500'}`}>
+                              {recipe.hourly_profit > 0 ? `+${(recipe.hourly_profit / 1000).toFixed(0)}k/hr` : `${(recipe.hourly_profit / 1000).toFixed(0)}k/hr`}
+                            </span>
+                          </div>
+                          <div className="flex justify-between text-cyan-400 font-semibold">
+                            <span>XP Rate:</span>
+                            <span>+{recipe.xp} XP ({(recipe.xp_rate / 1000).toFixed(0)}k XP/hr)</span>
+                          </div>
                         </div>
                       </div>
-                    </div>
 
-                    <div className="mt-4 pt-3 border-t border-[#1e2433] flex justify-between items-center text-xs text-neutral-400">
-                      <span>Actions/hr: ~{recipe.hourly_actions || 1400}</span>
-                      <span className={recipe.net_profit > 0 ? 'text-emerald-400 font-bold' : 'text-neutral-500'}>
-                        {recipe.net_profit > 0 ? 'Profitable' : 'Loss'}
-                      </span>
+                      <div className="mt-4 pt-3 border-t border-[#1e2433] flex justify-between items-center text-xs text-neutral-400">
+                        <span>Actions/hr: ~{recipe.hourly_actions || 1400}</span>
+                        <span className={recipe.net_profit > 0 ? 'text-emerald-400 font-bold' : 'text-neutral-500'}>
+                          {recipe.net_profit > 0 ? 'Profitable' : 'Loss'}
+                        </span>
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )
             )}
 
             {/* MODE 2: CRAFT & ALCH (223 RECIPES) */}
             {craftSubTab === 'craft_alch' && (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {filteredCraftAlchRecipes.map((recipe, idx) => (
-                  <div key={idx} className="bg-[#14171f] p-4 rounded-xl border border-[#242b3b] hover:border-amber-500/30 transition-all flex flex-col justify-between">
-                    <div>
-                      <div className="flex items-start justify-between mb-1.5">
-                        <div className="flex items-center gap-2">
-                          <img
-                            src={`https://static.runelite.net/cache/item/icon/${recipe.output_id}.png`}
-                            alt=""
-                            className="w-6 h-6 object-contain shrink-0"
-                            onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                          />
-                          <h3 className="font-bold text-white text-base">{recipe.name}</h3>
-                        </div>
-                        <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-[#1e2433] text-amber-400 border border-[#2d374d]">
-                          {recipe.skill || 'Crafting'} {recipe.level ? `Lvl ${recipe.level}` : ''}
-                        </span>
-                      </div>
+              craftViewMode === 'table' ? (
+                <div className="bg-[#14171f] rounded-xl border border-[#242b3b] overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs font-mono">
+                      <thead className="bg-[#1a1f2b] text-neutral-400 uppercase text-[10px] border-b border-[#262e3f] select-none">
+                        <tr>
+                          <th className="px-3 py-2.5 text-center">Exp</th>
+                          <th className="px-3 py-2.5">Recipe / Product</th>
+                          <th className="px-3 py-2.5">Skill / Req</th>
+                          <th className="px-3 py-2.5 text-right" title="High Alchemy gold value">High Alch</th>
+                          <th className="px-3 py-2.5 text-right" title="Total ingredient cost">Mat Cost</th>
+                          <th className="px-3 py-2.5 text-right text-emerald-400" title="Craft + High Alch net profit per item">Profit / Ea</th>
+                          <th className="px-3 py-2.5 text-right" title="Extra profit earned vs buying the finished item">Bonus vs Buy</th>
+                          <th className="px-3 py-2.5 text-right" title="Return on material investment">ROI %</th>
+                          <th className="px-3 py-2.5 text-center" title="4-hour Grand Exchange limit">Limit</th>
+                          <th className="px-3 py-2.5 text-right text-amber-400" title="Profit across full 4h limit">Batch Profit</th>
+                          <th className="px-3 py-2.5 text-right text-emerald-300" title="Hourly profit rate at standard actions/hr">Hourly Profit</th>
+                          <th className="px-3 py-2.5 text-right" title="Experience gained per hour">XP Rate</th>
+                          <th className="px-3 py-2.5 text-center">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#1e2433]">
+                        {filteredCraftAlchRecipes.map((r: any, idx: number) => {
+                          const isExpanded = !!expandedCraftRows[r.name];
+                          const inCart = cartItems.some(c => c.id === r.output_id);
+                          return (
+                            <React.Fragment key={idx}>
+                              <tr
+                                onClick={() => setExpandedCraftRows(prev => ({ ...prev, [r.name]: !prev[r.name] }))}
+                                className={`hover:bg-[#1a202c]/70 transition-colors cursor-pointer ${isExpanded ? 'bg-[#1a2233]' : ''}`}
+                              >
+                                <td className="px-3 py-2.5 text-center text-neutral-400">
+                                  {isExpanded ? <ChevronDown className="w-3.5 h-3.5 inline text-amber-400" /> : <ChevronRight className="w-3.5 h-3.5 inline" />}
+                                </td>
+                                <td className="px-3 py-2.5 font-sans font-bold text-white flex items-center gap-2">
+                                  <img
+                                    src={`https://static.runelite.net/cache/item/icon/${r.output_id}.png`}
+                                    alt=""
+                                    className="w-5 h-5 object-contain shrink-0"
+                                    onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                                  />
+                                  <span>{r.name}</span>
+                                </td>
+                                <td className="px-3 py-2.5">
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#1e2433] text-amber-300 font-semibold border border-[#2d374d]">
+                                    {r.skill} {r.level ? `Lvl ${r.level}` : ''}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2.5 text-right text-neutral-300">
+                                  {r.highalch.toLocaleString()} gp
+                                </td>
+                                <td className="px-3 py-2.5 text-right text-neutral-400">
+                                  {r.material_cost.toLocaleString()} gp
+                                </td>
+                                <td className={`px-3 py-2.5 text-right font-bold ${r.profit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                  {r.profit >= 0 ? `+${r.profit.toLocaleString()}` : r.profit.toLocaleString()} gp
+                                </td>
+                                <td className={`px-3 py-2.5 text-right font-semibold ${r.bonus_vs_buy > 0 ? 'text-cyan-400' : 'text-neutral-500'}`}>
+                                  {r.bonus_vs_buy > 0 ? `+${r.bonus_vs_buy.toLocaleString()}` : 'None'}
+                                </td>
+                                <td className={`px-3 py-2.5 text-right font-semibold ${r.roi >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                  {r.roi.toFixed(1)}%
+                                </td>
+                                <td className="px-3 py-2.5 text-center text-neutral-300">
+                                  {r.limit.toLocaleString()}
+                                </td>
+                                <td className={`px-3 py-2.5 text-right font-extrabold ${r.batch_profit >= 0 ? 'text-amber-400' : 'text-neutral-500'}`}>
+                                  {r.batch_profit >= 0 ? `+${formatGp(r.batch_profit)}` : `-${formatGp(Math.abs(r.batch_profit))}`}
+                                </td>
+                                <td className={`px-3 py-2.5 text-right font-bold ${r.hourly_profit >= 0 ? 'text-emerald-300' : 'text-neutral-500'}`}>
+                                  {r.hourly_profit >= 0 ? `+${formatGp(r.hourly_profit)}/hr` : `-${formatGp(Math.abs(r.hourly_profit))}/hr`}
+                                </td>
+                                <td className="px-3 py-2.5 text-right text-cyan-400">
+                                  +{r.xp} XP ({((r.xp_rate || 0) / 1000).toFixed(0)}k/h)
+                                </td>
+                                <td className="px-3 py-2.5 text-center" onClick={(e) => e.stopPropagation()}>
+                                  <button
+                                    onClick={() => handleToggleCart({ id: r.output_id, name: r.name, buy_price: r.material_cost, buy_limit: r.limit, profit: r.profit })}
+                                    className={`px-2 py-0.5 rounded text-[10px] font-bold font-sans transition-all border ${inCart ? 'bg-emerald-500 text-black border-emerald-400' : 'bg-amber-500/10 hover:bg-amber-500 hover:text-black text-amber-300 border-amber-500/30'}`}
+                                  >
+                                    {inCart ? '✓ Cart' : '+ Cart'}
+                                  </button>
+                                </td>
+                              </tr>
 
-                      {/* Materials list */}
-                      <div className="text-xs text-neutral-400 mb-3 space-y-0.5">
-                        {(recipe.materials || []).map((m: any, mIdx: number) => (
-                          <div key={mIdx} className="flex justify-between">
-                            <span>{m.qty}x {m.name}</span>
-                            <span className="font-mono text-neutral-500">
-                              {m.unit_price > 0 ? `${(m.unit_price * m.qty).toLocaleString()} gp` : ''}
+                              {/* Expandable Ingredient Sub-Row */}
+                              {isExpanded && (
+                                <tr className="bg-[#121622]">
+                                  <td colSpan={13} className="px-6 py-3 border-t border-b border-[#242c3d]">
+                                    <div className="space-y-2">
+                                      <div className="flex justify-between items-center text-xs">
+                                        <span className="font-bold text-amber-400 font-sans flex items-center gap-1.5">
+                                          🪄 Craft &amp; High Alch Recipe Breakdown (Nat: {effectiveNatPrice} gp):
+                                        </span>
+                                        <span className="text-[11px] text-neutral-400">
+                                          Actions/hr: ~1200 | High Alch: {r.highalch.toLocaleString()} gp
+                                        </span>
+                                      </div>
+                                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                        {(r.materials_detailed || []).map((m: any, mIdx: number) => {
+                                          const taxedRev = r.highalch - effectiveNatPrice;
+                                          const otherCost = r.material_cost - (m.unit_price * (m.qty || 1));
+                                          const maxCeiling = Math.floor((taxedRev - otherCost) / (m.qty || 1));
+                                          return (
+                                            <div key={mIdx} className="bg-[#191e28] p-2.5 rounded-lg border border-[#262f40] space-y-1">
+                                              <div className="flex justify-between items-center text-xs">
+                                                <span className="font-bold text-white flex items-center gap-1.5">
+                                                  <img
+                                                    src={`https://static.runelite.net/cache/item/icon/${m.id}.png`}
+                                                    alt=""
+                                                    className="w-4 h-4 object-contain"
+                                                    onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                                                  />
+                                                  {m.qty}x {m.name}
+                                                </span>
+                                                <span className="text-neutral-400 font-mono">{(m.unit_price * m.qty).toLocaleString()} gp</span>
+                                              </div>
+                                              <div className="flex justify-between text-[11px] text-neutral-400 pt-1 border-t border-white/5">
+                                                <span>Unit Price: {m.unit_price.toLocaleString()} gp</span>
+                                                <span className="text-amber-300 font-semibold">Max Buy: ≤ {maxCeiling.toLocaleString()} gp</span>
+                                              </div>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
+                            </React.Fragment>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {filteredCraftAlchRecipes.map((recipe, idx) => (
+                    <div key={idx} className="bg-[#14171f] p-4 rounded-xl border border-[#242b3b] hover:border-amber-500/30 transition-all flex flex-col justify-between">
+                      <div>
+                        <div className="flex items-start justify-between mb-1.5">
+                          <div className="flex items-center gap-2">
+                            <img
+                              src={`https://static.runelite.net/cache/item/icon/${recipe.output_id}.png`}
+                              alt=""
+                              className="w-6 h-6 object-contain shrink-0"
+                              onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                            />
+                            <h3 className="font-bold text-white text-base">{recipe.name}</h3>
+                          </div>
+                          <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-[#1e2433] text-amber-400 border border-[#2d374d]">
+                            {recipe.skill || 'Crafting'} {recipe.level ? `Lvl ${recipe.level}` : ''}
+                          </span>
+                        </div>
+
+                        {/* Materials list */}
+                        <div className="text-xs text-neutral-400 mb-3 space-y-0.5">
+                          {(recipe.materials || []).map((m: any, mIdx: number) => (
+                            <div key={mIdx} className="flex justify-between">
+                              <span>{m.qty}x {m.name}</span>
+                              <span className="font-mono text-neutral-500">
+                                {m.unit_price > 0 ? `${(m.unit_price * m.qty).toLocaleString()} gp` : ''}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Live Financial & XP Stats */}
+                        <div className="space-y-1.5 text-xs text-neutral-300 bg-[#191e28] p-3 rounded-lg border border-[#222a3a]">
+                          <div className="flex justify-between">
+                            <span className="text-neutral-400">Total Material Cost:</span>
+                            <span className="font-mono">{recipe.material_cost.toLocaleString()} gp</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-neutral-400">High Alch Value:</span>
+                            <span className="font-mono text-neutral-200">
+                              {recipe.highalch > 0 ? `${recipe.highalch.toLocaleString()} gp` : '—'}
                             </span>
                           </div>
-                        ))}
-                      </div>
-
-                      {/* Live Financial & XP Stats */}
-                      <div className="space-y-1.5 text-xs text-neutral-300 bg-[#191e28] p-3 rounded-lg border border-[#222a3a]">
-                        <div className="flex justify-between">
-                          <span className="text-neutral-400">Total Material Cost:</span>
-                          <span className="font-mono">{recipe.material_cost.toLocaleString()} gp</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-neutral-400">High Alch Value:</span>
-                          <span className="font-mono text-neutral-200">
-                            {recipe.highalch > 0 ? `${recipe.highalch.toLocaleString()} gp` : '—'}
-                          </span>
-                        </div>
-                        <div className="flex justify-between pt-1 border-t border-[#232938]">
-                          <span className="text-neutral-400">Profit (Craft + Alch):</span>
-                          <span className={`font-mono font-bold ${recipe.profit > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                            {recipe.profit > 0 ? `+${recipe.profit.toLocaleString()}` : recipe.profit.toLocaleString()} gp
-                          </span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-neutral-400">Bonus vs Buying Finished:</span>
-                          <span className={`font-mono font-semibold ${recipe.bonus_vs_buy > 0 ? 'text-cyan-400' : 'text-neutral-400'}`}>
-                            {recipe.bonus_vs_buy > 0 ? `+${recipe.bonus_vs_buy.toLocaleString()} gp extra` : 'None'}
-                          </span>
-                        </div>
-                        <div className="flex justify-between text-cyan-400 font-semibold">
-                          <span>XP Rate:</span>
-                          <span>+{recipe.xp} XP ({(recipe.xp_rate / 1000).toFixed(0)}k XP/hr)</span>
+                          <div className="flex justify-between pt-1 border-t border-[#232938]">
+                            <span className="text-neutral-400">Profit (Craft + Alch):</span>
+                            <span className={`font-mono font-bold ${recipe.profit > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                              {recipe.profit > 0 ? `+${recipe.profit.toLocaleString()}` : recipe.profit.toLocaleString()} gp
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-neutral-400">Bonus vs Buying Finished:</span>
+                            <span className={`font-mono font-semibold ${recipe.bonus_vs_buy > 0 ? 'text-cyan-400' : 'text-neutral-400'}`}>
+                              {recipe.bonus_vs_buy > 0 ? `+${recipe.bonus_vs_buy.toLocaleString()} gp extra` : 'None'}
+                            </span>
+                          </div>
+                          <div className="flex justify-between text-cyan-400 font-semibold">
+                            <span>XP Rate:</span>
+                            <span>+{recipe.xp} XP ({(recipe.xp_rate / 1000).toFixed(0)}k XP/hr)</span>
+                          </div>
                         </div>
                       </div>
-                    </div>
 
-                    <div className="mt-4 pt-3 border-t border-[#1e2433] flex justify-between items-center text-xs text-neutral-400">
-                      <span>Craft + Alch GP/hr: <strong className="text-amber-400">+{(recipe.hourly_profit / 1000).toFixed(0)}k/hr</strong></span>
-                      <span className={recipe.profit > 0 ? 'text-emerald-400 font-bold' : 'text-neutral-500'}>
-                        {recipe.profit > 0 ? 'Profitable' : 'Loss'}
-                      </span>
+                      <div className="mt-4 pt-3 border-t border-[#1e2433] flex justify-between items-center text-xs text-neutral-400">
+                        <span>Craft + Alch GP/hr: <strong className="text-amber-400">+{(recipe.hourly_profit / 1000).toFixed(0)}k/hr</strong></span>
+                        <span className={recipe.profit > 0 ? 'text-emerald-400 font-bold' : 'text-neutral-500'}>
+                          {recipe.profit > 0 ? 'Profitable' : 'Loss'}
+                        </span>
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )
             )}
 
             {/* MODE 3: LEVEL TRAINING GUIDE (Smithing, Fletching, Crafting, Magic) */}
@@ -3643,249 +4410,644 @@ export default function Dashboard() {
                     </div>
                   )}
 
-                  {/* XP & Progress KPI Summary Banner */}
-                  <div className="bg-[#14171f] p-5 rounded-xl border border-[#242b3b] space-y-4">
-                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
-                      <div>
-                        <span className="text-xs text-neutral-400 uppercase tracking-wider font-bold">Progression Milestone</span>
-                        <h4 className="text-lg font-bold text-white">
-                          Level {guideCurrentLevel} ➔ Level {guideTargetLevel} ({guideSkill})
-                        </h4>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-xs text-neutral-400">Total XP Required: </span>
-                        <span className="text-amber-400 font-bold font-mono text-sm">{remXp.toLocaleString()} XP</span>
-                      </div>
+                  {/* Guide View Mode Navigation Pills */}
+                  <div className="flex flex-wrap items-center justify-between gap-3 bg-[#14171f] p-3 rounded-xl border border-[#242b3b]">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        onClick={() => setGuideViewMode('progression')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                          guideViewMode === 'progression'
+                            ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20'
+                            : 'bg-[#1b202c] text-neutral-300 hover:bg-[#252c3c]'
+                        }`}
+                      >
+                        <TrendingUp className="w-3.5 h-3.5" /> 📈 Level Progression (1–99)
+                      </button>
+                      {guideSkill === 'Smithing' && (
+                        <button
+                          onClick={() => setGuideViewMode('material_tree')}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                            guideViewMode === 'material_tree'
+                              ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20'
+                              : 'bg-[#1b202c] text-neutral-300 hover:bg-[#252c3c]'
+                          }`}
+                        >
+                          <Layers className="w-3.5 h-3.5" /> 🌲 Smithing Material Chain Tree
+                        </button>
+                      )}
+                      <button
+                        onClick={() => setGuideViewMode('sale_inspector')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                          guideViewMode === 'sale_inspector'
+                            ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20'
+                            : 'bg-[#1b202c] text-neutral-300 hover:bg-[#252c3c]'
+                        }`}
+                      >
+                        <Search className="w-3.5 h-3.5" /> 💰 Sale Price Inspector & Recipe Breakdown
+                      </button>
                     </div>
-
-                    {/* Progress Bar */}
-                    <div className="space-y-1">
-                      <div className="w-full h-3 bg-[#1e2433] rounded-full overflow-hidden border border-[#2b3547]">
-                        <div
-                          className="h-full bg-gradient-to-r from-amber-500 to-yellow-400 transition-all duration-300"
-                          style={{ width: `${progressPct}%` }}
-                        ></div>
+                    {guideViewMode === 'progression' && (
+                      <div className="flex items-center gap-2 text-xs">
+                        <span className="text-neutral-400">Target Margin:</span>
+                        <input
+                          type="number"
+                          value={guideTargetMargin}
+                          onChange={(e) => setGuideTargetMargin(Number(e.target.value))}
+                          className="w-20 bg-[#1b202c] border border-[#2e374d] rounded px-2 py-1 text-white font-mono text-xs"
+                          placeholder="GP"
+                        />
                       </div>
-                      <div className="flex justify-between text-[11px] text-neutral-400 font-mono">
-                        <span>Current XP: {currentXp.toLocaleString()}</span>
-                        <span>{progressPct.toFixed(1)}%</span>
-                        <span>Target XP: {targetXp.toLocaleString()}</span>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-2 text-xs">
-                      <div className="bg-[#191e28] p-3 rounded-lg border border-[#242c3d]">
-                        <span className="text-neutral-400 block text-[11px]">Current XP</span>
-                        <span className="text-white font-mono font-bold text-sm">{currentXp.toLocaleString()}</span>
-                      </div>
-                      <div className="bg-[#191e28] p-3 rounded-lg border border-[#242c3d]">
-                        <span className="text-neutral-400 block text-[11px]">Target XP</span>
-                        <span className="text-white font-mono font-bold text-sm">{targetXp.toLocaleString()}</span>
-                      </div>
-                      <div className="bg-[#191e28] p-3 rounded-lg border border-[#242c3d]">
-                        <span className="text-neutral-400 block text-[11px]">Remaining XP</span>
-                        <span className="text-amber-400 font-mono font-bold text-sm">{remXp.toLocaleString()}</span>
-                      </div>
-                      <div className="bg-[#191e28] p-3 rounded-lg border border-[#242c3d]">
-                        <span className="text-neutral-400 block text-[11px]">Progression Status</span>
-                        <span className="text-emerald-400 font-bold text-sm">
-                          {guideCurrentLevel >= guideTargetLevel ? '🎯 Goal Reached!' : `${guideTargetLevel - guideCurrentLevel} Levels Left`}
-                        </span>
-                      </div>
-                    </div>
+                    )}
                   </div>
 
-                  {/* Quest Skips & Shortcuts Section */}
-                  {skillData.quests && skillData.quests.length > 0 && (
-                    <div className="bg-[#14171f] p-5 rounded-xl border border-[#242b3b] space-y-3">
-                      <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                        <BookOpen className="w-4 h-4 text-amber-400" />
-                        Essential Early Quest Skips & Shortcuts ({guideSkill})
-                      </h4>
-                      <p className="text-xs text-neutral-400">
-                        Complete these quests first to bypass the slowest early levels without spending GP or crafting low-tier materials:
-                      </p>
+                  {/* SUB-VIEW 1: LEVEL PROGRESSION (1-99) */}
+                  {guideViewMode === 'progression' && (
+                    <>
+                      {/* XP & Progress KPI Summary Banner */}
+                      <div className="bg-[#14171f] p-5 rounded-xl border border-[#242b3b] space-y-4">
+                        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
+                          <div>
+                            <span className="text-xs text-neutral-400 uppercase tracking-wider font-bold">Progression Milestone</span>
+                            <h4 className="text-lg font-bold text-white">
+                              Level {guideCurrentLevel} ➔ Level {guideTargetLevel} ({guideSkill})
+                            </h4>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-xs text-neutral-400">Total XP Required: </span>
+                            <span className="text-amber-400 font-bold font-mono text-sm">{remXp.toLocaleString()} XP</span>
+                          </div>
+                        </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
-                        {skillData.quests
-                          .filter((q: any) => isP2P || !q.members)
-                          .map((q: any, idx: number) => (
-                            <div key={idx} className="bg-[#191e28] p-3.5 rounded-xl border border-[#242c3d] space-y-1.5 text-xs">
-                              <div className="flex justify-between items-start">
-                                <span className="font-bold text-amber-400 text-sm flex items-center gap-1.5">
-                                  📜 {q.name}
-                                </span>
-                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${q.members ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'}`}>
-                                  {q.members ? 'P2P' : 'F2P'} • +{q.xp.toLocaleString()} XP
-                                </span>
+                        {/* Progress Bar */}
+                        <div className="space-y-1">
+                          <div className="w-full h-3 bg-[#1e2433] rounded-full overflow-hidden border border-[#2b3547]">
+                            <div
+                              className="h-full bg-gradient-to-r from-amber-500 to-yellow-400 transition-all duration-300"
+                              style={{ width: `${progressPct}%` }}
+                            ></div>
+                          </div>
+                          <div className="flex justify-between text-[11px] text-neutral-400 font-mono">
+                            <span>Current XP: {currentXp.toLocaleString()}</span>
+                            <span>{progressPct.toFixed(1)}%</span>
+                            <span>Target XP: {targetXp.toLocaleString()}</span>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-2 text-xs">
+                          <div className="bg-[#191e28] p-3 rounded-lg border border-[#242c3d]">
+                            <span className="text-neutral-400 block text-[11px]">Current XP</span>
+                            <span className="text-white font-mono font-bold text-sm">{currentXp.toLocaleString()}</span>
+                          </div>
+                          <div className="bg-[#191e28] p-3 rounded-lg border border-[#242c3d]">
+                            <span className="text-neutral-400 block text-[11px]">Target XP</span>
+                            <span className="text-white font-mono font-bold text-sm">{targetXp.toLocaleString()}</span>
+                          </div>
+                          <div className="bg-[#191e28] p-3 rounded-lg border border-[#242c3d]">
+                            <span className="text-neutral-400 block text-[11px]">Remaining XP</span>
+                            <span className="text-amber-400 font-mono font-bold text-sm">{remXp.toLocaleString()}</span>
+                          </div>
+                          <div className="bg-[#191e28] p-3 rounded-lg border border-[#242c3d]">
+                            <span className="text-neutral-400 block text-[11px]">Progression Status</span>
+                            <span className="text-emerald-400 font-bold text-sm">
+                              {guideCurrentLevel >= guideTargetLevel ? '🎯 Goal Reached!' : `${guideTargetLevel - guideCurrentLevel} Levels Left`}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Quest Skips & Shortcuts Section */}
+                      {skillData.quests && skillData.quests.length > 0 && (
+                        <div className="bg-[#14171f] p-5 rounded-xl border border-[#242b3b] space-y-3">
+                          <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                            <BookOpen className="w-4 h-4 text-amber-400" />
+                            Essential Early Quest Skips & Shortcuts ({guideSkill})
+                          </h4>
+                          <p className="text-xs text-neutral-400">
+                            Complete these quests first to bypass the slowest early levels without spending GP or crafting low-tier materials:
+                          </p>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                            {skillData.quests
+                              .filter((q: any) => isP2P || !q.members)
+                              .map((q: any, idx: number) => (
+                                <div key={idx} className="bg-[#191e28] p-3.5 rounded-xl border border-[#242c3d] space-y-1.5 text-xs">
+                                  <div className="flex justify-between items-start">
+                                    <span className="font-bold text-amber-400 text-sm flex items-center gap-1.5">
+                                      📜 {q.name}
+                                    </span>
+                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${q.members ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'}`}>
+                                      {q.members ? 'P2P' : 'F2P'} • +{q.xp.toLocaleString()} XP
+                                    </span>
+                                  </div>
+                                  <p className="text-emerald-300 font-semibold text-[11px]">{q.skip}</p>
+                                  <div className="text-[11px] text-neutral-400">
+                                    <strong>Reqs:</strong> {q.reqs}
+                                  </div>
+                                  <p className="text-neutral-300 text-[11px] italic pt-1 border-t border-white/5">
+                                    💡 {q.tip}
+                                  </p>
+                                </div>
+                              ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Full 13-Column Live Progression Brackets Table */}
+                      <div className="bg-[#14171f] rounded-xl border border-[#242b3b] overflow-hidden">
+                        <div className="p-4 border-b border-[#242b3b] flex justify-between items-center">
+                          <div>
+                            <h4 className="font-bold text-white text-sm">Level Progression Brackets (1–99)</h4>
+                            <p className="text-xs text-neutral-400">Real-time live pricing, authentic calculated GP/XP, dynamic disposal verdicts, and max mat buy ceilings.</p>
+                          </div>
+                        </div>
+
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-xs text-left">
+                            <thead className="bg-[#0f1219] text-neutral-400 uppercase text-[10px] font-mono border-b border-[#242b3b]">
+                              <tr>
+                                <th className="px-3 py-3" title="Bracket completion status relative to your current level">Status</th>
+                                <th className="px-3 py-3" title="Skill level bracket range">Level</th>
+                                <th className="px-3 py-3" title="Crafting recipe or quest method name and speed">Method / Item</th>
+                                <th className="px-3 py-3 text-right" title="XP gained per individual crafting action">XP/Act</th>
+                                <th className="px-3 py-3 text-right" title="Actions required to complete this bracket or your goal">Actions</th>
+                                <th className="px-3 py-3" title="Ingredients required per action and total batch">Materials Required</th>
+                                <th className="px-3 py-3 text-right" title="Live GE market cost of ingredients per action">Mat Cost</th>
+                                <th className="px-3 py-3" title="Most profitable liquidation route (W308, High Alch, GE Sell, Consume)">Best Disposal</th>
+                                <th className="px-3 py-3 text-right" title="Net profit (+) or loss (-) per experience point gained">GP/XP</th>
+                                <th className="px-3 py-3 text-right" title="Total net GP profit or cost for this level bracket">Bracket Cost</th>
+                                <th className="px-3 py-3 text-right" title="Maximum primary material buy price to avoid losing GP">Max Mat Price</th>
+                                <th className="px-3 py-3 text-right" title="Estimated time to complete based on standard actions/hr">Time Est.</th>
+                                <th className="px-3 py-3" title="Strategic efficiency tips and guide commentary">Verdict / Tip</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-[#1e2433]">
+                              {skillData.brackets
+                                .filter((b: any) => {
+                                  if (!isP2P && b.members) return false;
+                                  if (guideStyleFilter !== 'all' && b.style !== guideStyleFilter && b.style !== 'quest') return false;
+                                  return true;
+                                })
+                                .map((b: any, idx: number) => {
+                                  const metrics = calculateGuideBracketMetrics(b, guideCurrentLevel, guideTargetLevel);
+
+                                  // Style badge
+                                  const styleBadge = {
+                                    fast: <span className="bg-amber-500/10 text-amber-400 px-1.5 py-0.5 rounded text-[9px] font-bold">⚡ Fast</span>,
+                                    profit: <span className="bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded text-[9px] font-bold">💰 Profit</span>,
+                                    afk: <span className="bg-cyan-500/10 text-cyan-400 px-1.5 py-0.5 rounded text-[9px] font-bold">🧘 AFK</span>,
+                                    quest: <span className="bg-purple-500/10 text-purple-400 px-1.5 py-0.5 rounded text-[9px] font-bold">📜 Quest</span>,
+                                  }[b.style as 'fast' | 'profit' | 'afk' | 'quest'] || null;
+
+                                  const isGpXpProfit = metrics.gpXpStr.startsWith('+');
+
+                                  return (
+                                    <tr
+                                      key={idx}
+                                      className={`hover:bg-[#1a202c] transition-colors ${
+                                        metrics.isCurrent ? 'bg-amber-500/5 border-l-2 border-l-amber-500' : metrics.isCompleted ? 'opacity-60' : ''
+                                      }`}
+                                    >
+                                      <td className="px-3 py-3">
+                                        {metrics.isCompleted ? (
+                                          <span className="text-emerald-400 font-semibold flex items-center gap-1">
+                                            <Check className="w-3.5 h-3.5" /> Done
+                                          </span>
+                                        ) : metrics.isCurrent ? (
+                                          <span className="text-amber-400 font-bold flex items-center gap-1">
+                                            📍 Active
+                                          </span>
+                                        ) : (
+                                          <span className="text-neutral-500 flex items-center gap-1">
+                                            🔒 Lvl {b.min_lvl}
+                                          </span>
+                                        )}
+                                      </td>
+                                      <td className="px-3 py-3 font-mono font-bold text-neutral-300">
+                                        {b.min_lvl} - {b.max_lvl}
+                                      </td>
+                                      <td className="px-3 py-3">
+                                        <div className="flex items-center gap-2">
+                                          {b.output_id > 0 && (
+                                            <img
+                                              src={`https://static.runelite.net/cache/item/icon/${b.output_id}.png`}
+                                              alt=""
+                                              className="w-5 h-5 object-contain"
+                                              onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                                            />
+                                          )}
+                                          <div>
+                                            <span className="font-bold text-white block">{b.item_name || b.name}</span>
+                                            <div className="flex items-center gap-1 mt-0.5">
+                                              {styleBadge}
+                                              {b.xp_rate > 0 && (
+                                                <span className="text-[10px] text-neutral-500">
+                                                  ~{(b.xp_rate / 1000).toFixed(0)}k XP/hr
+                                                </span>
+                                              )}
+                                            </div>
+                                          </div>
+                                        </div>
+                                      </td>
+                                      <td className="px-3 py-3 text-right font-mono font-bold text-cyan-400">
+                                        +{b.xp_per_action}
+                                      </td>
+                                      <td className="px-3 py-3 text-right font-mono font-bold text-amber-400">
+                                        {metrics.displayActions > 0 ? metrics.displayActions.toLocaleString() : metrics.isCompleted ? '0' : '—'}
+                                      </td>
+                                      <td className="px-3 py-3">
+                                        <span className="text-neutral-300 block">{metrics.materialsStr}</span>
+                                        {metrics.totMatsStr !== metrics.materialsStr && (
+                                          <span className="text-[10px] text-neutral-500 block">Total: {metrics.totMatsStr}</span>
+                                        )}
+                                      </td>
+                                      <td className="px-3 py-3 text-right font-mono text-neutral-400">
+                                        {b.style === 'quest' ? '0 gp' : `${Math.abs(metrics.bestProfitEa).toLocaleString()} gp`}
+                                      </td>
+                                      <td className="px-3 py-3">
+                                        <span className="text-neutral-200 font-semibold">{metrics.actionRec}</span>
+                                      </td>
+                                      <td className={`px-3 py-3 text-right font-mono font-bold ${isGpXpProfit ? 'text-emerald-400' : metrics.gpXpStr.includes('FREE') ? 'text-amber-400' : 'text-rose-400'}`}>
+                                        {metrics.gpXpStr}
+                                      </td>
+                                      <td className={`px-3 py-3 text-right font-mono font-bold ${metrics.bracketCostStr.startsWith('+') ? 'text-emerald-400' : 'text-neutral-300'}`}>
+                                        {metrics.bracketCostStr}
+                                      </td>
+                                      <td className="px-3 py-3 text-right font-mono text-amber-300 font-medium">
+                                        {metrics.maxBuyStr}
+                                      </td>
+                                      <td className="px-3 py-3 text-right font-mono text-neutral-400">
+                                        {metrics.timeEstStr}
+                                      </td>
+                                      <td className="px-3 py-3 text-neutral-400 text-[11px] max-w-xs leading-relaxed">
+                                        {b.verdict}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </>
+                  )}
+
+                  {/* SUB-VIEW 2: SMITHING MATERIAL CHAIN TREE */}
+                  {guideViewMode === 'material_tree' && guideSkill === 'Smithing' && (
+                    <div className="space-y-6">
+                      <div className="bg-[#14171f] p-5 rounded-xl border border-[#242b3b] space-y-2">
+                        <h4 className="text-base font-bold text-white flex items-center gap-2">
+                          <Layers className="w-5 h-5 text-amber-400" />
+                          Smithing Material Family Tree (Ore ➔ Bar ➔ Finished Goods)
+                        </h4>
+                        <p className="text-xs text-neutral-400">
+                          Inspect complete supply-chain economics: live ore & coal smelting costs vs bar sale price, plus finished product liquidation margins across Bronze through Runite.
+                        </p>
+                      </div>
+
+                      <div className="space-y-6">
+                        {(smithingChainsData as any[]).map((tierData, tIdx) => {
+                          const latest = priceData?.latest || {};
+                          const oreP = latest[String(tierData.ore_id)]?.low || latest[String(tierData.ore_id)]?.high || 0;
+                          const secP = tierData.second_id ? (latest[String(tierData.second_id)]?.low || latest[String(tierData.second_id)]?.high || 0) : 0;
+                          const coalP = latest['453']?.low || latest['453']?.high || 170;
+                          const barP = latest[String(tierData.bar_id)]?.low || latest[String(tierData.bar_id)]?.high || 0;
+
+                          const regSmeltCost = oreP + secP + (tierData.coal_qty_reg * coalP);
+                          const bfSmeltCost = oreP + secP + (tierData.coal_qty_bf * coalP);
+                          const regSmeltProfit = Math.floor(barP * 0.98) - regSmeltCost;
+                          const bfSmeltProfit = Math.floor(barP * 0.98) - bfSmeltCost;
+
+                          return (
+                            <div key={tIdx} className="bg-[#14171f] rounded-xl border border-[#242b3b] overflow-hidden space-y-4 p-5">
+                              {/* Tier Header & Smelting Economics */}
+                              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b border-[#242b3b]">
+                                <div>
+                                  <div className="flex items-center gap-2">
+                                    <h5 className="text-lg font-black text-amber-400">{tierData.tier} Tier</h5>
+                                    <span className="text-[10px] bg-white/5 text-neutral-300 px-2 py-0.5 rounded font-mono">
+                                      Smelt Lvl {tierData.smelt_lvl} (+{tierData.smelt_xp} XP)
+                                    </span>
+                                    {tierData.members && (
+                                      <span className="text-[10px] bg-amber-500/10 text-amber-400 px-2 py-0.5 rounded font-bold border border-amber-500/20">
+                                        Members
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="text-xs text-neutral-400 mt-1">
+                                    Smelting Input: {tierData.ore_name} ({oreP.toLocaleString()} gp)
+                                    {tierData.second_name && ` + ${tierData.second_name} (${secP.toLocaleString()} gp)`}
+                                    {tierData.coal_qty_reg > 0 && ` + ${tierData.coal_qty_reg}x Coal (${(tierData.coal_qty_reg * coalP).toLocaleString()} gp)`}
+                                  </p>
+                                </div>
+
+                                <div className="flex flex-wrap items-center gap-3 text-xs">
+                                  <div className="bg-[#191e28] p-2.5 rounded-lg border border-[#242c3d]">
+                                    <span className="text-neutral-400 block text-[10px]">Bar Live Price:</span>
+                                    <span className="font-bold text-white font-mono">{barP.toLocaleString()} gp</span>
+                                  </div>
+                                  <div className="bg-[#191e28] p-2.5 rounded-lg border border-[#242c3d]">
+                                    <span className="text-neutral-400 block text-[10px]">Furnace Smelt:</span>
+                                    <span className={`font-bold font-mono ${regSmeltProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                      {regSmeltProfit >= 0 ? `+${regSmeltProfit.toLocaleString()}` : regSmeltProfit.toLocaleString()} gp
+                                    </span>
+                                  </div>
+                                  {tierData.coal_qty_reg > 0 && (
+                                    <div className="bg-[#191e28] p-2.5 rounded-lg border border-[#242c3d]">
+                                      <span className="text-neutral-400 block text-[10px]">Blast Furnace:</span>
+                                      <span className={`font-bold font-mono ${bfSmeltProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                        {bfSmeltProfit >= 0 ? `+${bfSmeltProfit.toLocaleString()}` : bfSmeltProfit.toLocaleString()} gp
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
                               </div>
-                              <p className="text-emerald-300 font-semibold text-[11px]">{q.skip}</p>
-                              <div className="text-[11px] text-neutral-400">
-                                <strong>Reqs:</strong> {q.reqs}
+
+                              {/* Finished Smithable Items Table */}
+                              <div className="overflow-x-auto">
+                                <table className="w-full text-xs text-left">
+                                  <thead className="bg-[#0f1219] text-neutral-400 uppercase text-[10px] font-mono border-b border-[#242b3b]">
+                                    <tr>
+                                      <th className="px-3 py-2.5">Smithable Item</th>
+                                      <th className="px-3 py-2.5 text-center">Req Lvl</th>
+                                      <th className="px-3 py-2.5 text-center">Bars</th>
+                                      <th className="px-3 py-2.5 text-right">Smith XP</th>
+                                      <th className="px-3 py-2.5 text-right">Bar Cost</th>
+                                      <th className="px-3 py-2.5 text-right">GE Net (2% tax)</th>
+                                      <th className="px-3 py-2.5 text-right">High Alch Net</th>
+                                      <th className="px-3 py-2.5 text-right">Best Profit / Item</th>
+                                      <th className="px-3 py-2.5 text-right">Profit / Bar</th>
+                                      <th className="px-3 py-2.5 text-right">GP/XP</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-[#1e2433]">
+                                    {tierData.items.map((it: any, iIdx: number) => {
+                                      const barCost = it.bars * barP;
+                                      const itemLat = latest[String(it.id)];
+                                      const geRaw = itemLat?.low || itemLat?.high || 0;
+                                      const geNet = Math.floor(geRaw * 0.98);
+                                      const alchVal = priceData?.alch_map?.[String(it.id)] || 0;
+                                      const alchNet = alchVal > 0 ? (alchVal - effectiveNatPrice) : -999999;
+                                      
+                                      const staple = (w308StaplesData as any[]).find(s => s.id === it.id || s.name.toLowerCase() === it.name.toLowerCase());
+                                      const w308Net = staple ? staple.w308_buy : -999999;
+
+                                      const bestRev = Math.max(geNet, alchNet, w308Net);
+                                      const bestProf = bestRev - barCost;
+                                      const profPerBar = it.bars > 0 ? Math.floor(bestProf / it.bars) : 0;
+                                      const gpPerXp = it.xp > 0 ? (bestProf / it.xp) : 0;
+
+                                      return (
+                                        <tr key={iIdx} className="hover:bg-[#1a202c] transition-colors">
+                                          <td className="px-3 py-2 font-medium text-white flex items-center gap-2">
+                                            <img
+                                              src={`https://static.runelite.net/cache/item/icon/${it.id}.png`}
+                                              alt=""
+                                              className="w-4 h-4 object-contain"
+                                              onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                                            />
+                                            {it.name}
+                                          </td>
+                                          <td className="px-3 py-2 text-center font-mono text-neutral-300">{it.level}</td>
+                                          <td className="px-3 py-2 text-center font-mono text-amber-400 font-bold">{it.bars}</td>
+                                          <td className="px-3 py-2 text-right font-mono text-cyan-400">+{it.xp}</td>
+                                          <td className="px-3 py-2 text-right font-mono text-neutral-400">{barCost.toLocaleString()} gp</td>
+                                          <td className="px-3 py-2 text-right font-mono text-neutral-300">{geNet > 0 ? `${geNet.toLocaleString()} gp` : '—'}</td>
+                                          <td className="px-3 py-2 text-right font-mono text-neutral-300">{alchVal > 0 ? `${alchNet.toLocaleString()} gp` : '—'}</td>
+                                          <td className={`px-3 py-2 text-right font-mono font-bold ${bestProf >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                            {bestProf >= 0 ? `+${bestProf.toLocaleString()}` : `${bestProf.toLocaleString()}`} gp
+                                          </td>
+                                          <td className={`px-3 py-2 text-right font-mono font-medium ${profPerBar >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                            {profPerBar >= 0 ? `+${profPerBar.toLocaleString()}` : `${profPerBar.toLocaleString()}`}
+                                          </td>
+                                          <td className={`px-3 py-2 text-right font-mono font-bold ${gpPerXp >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                            {gpPerXp >= 0 ? `+${gpPerXp.toFixed(2)}` : gpPerXp.toFixed(2)}
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
                               </div>
-                              <p className="text-neutral-300 text-[11px] italic pt-1 border-t border-white/5">
-                                💡 {q.tip}
-                              </p>
                             </div>
-                          ))}
+                          );
+                        })}
                       </div>
                     </div>
                   )}
 
-                  {/* Level Brackets Table */}
-                  <div className="bg-[#14171f] rounded-xl border border-[#242b3b] overflow-hidden">
-                    <div className="p-4 border-b border-[#242b3b] flex justify-between items-center">
-                      <div>
-                        <h4 className="font-bold text-white text-sm">Level Progression Brackets (1–99)</h4>
-                        <p className="text-xs text-neutral-400">Optimal training methods, XP rates, material inputs, and disposal verdicts.</p>
+                  {/* SUB-VIEW 3: SALE PRICE INSPECTOR & RECIPE BREAKDOWN */}
+                  {guideViewMode === 'sale_inspector' && (
+                    <div className="space-y-6">
+                      <div className="bg-[#14171f] p-5 rounded-xl border border-[#242b3b] space-y-4">
+                        <div>
+                          <h4 className="text-base font-bold text-white flex items-center gap-2">
+                            <Search className="w-5 h-5 text-amber-400" />
+                            Sale Price Inspector & Disposal Breakdown
+                          </h4>
+                          <p className="text-xs text-neutral-400">
+                            Inspect any finished manufactured product or bulk staple: test custom agreed trade prices, compare real-time GE vs High Alch vs W308 liquidation profits, and calculate the maximum material buy ceiling to avoid losing GP.
+                          </p>
+                        </div>
+
+                        {/* Quick Staples Preset Chips */}
+                        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-[#242b3b]">
+                          <span className="text-neutral-400 text-xs font-semibold">Quick Staples:</span>
+                          {[
+                            { name: 'Rune 2h sword', price: 37600 },
+                            { name: 'Rune platelegs', price: 37600 },
+                            { name: 'Rune plateskirt', price: 37600 },
+                            { name: 'Adamant platebody', price: 9800 },
+                            { name: 'Mithril platebody', price: 3000 },
+                            { name: 'Green d\'hide body', price: 4400 },
+                            { name: 'Air battlestaff', price: 9100 },
+                            { name: 'Diamond bracelet', price: 6800 }
+                          ].map((preset, pIdx) => (
+                            <button
+                              key={pIdx}
+                              onClick={() => {
+                                setInspItemName(preset.name);
+                                setInspAgreedPrice(preset.price);
+                              }}
+                              className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold transition-all border ${
+                                inspItemName.toLowerCase() === preset.name.toLowerCase()
+                                  ? 'bg-amber-500 text-black border-amber-400'
+                                  : 'bg-[#191e28] text-neutral-300 border-[#242c3d] hover:bg-[#252c3c]'
+                              }`}
+                            >
+                              {preset.name}
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* Interactive Inputs */}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+                          <div>
+                            <label className="text-neutral-400 block text-xs mb-1 font-semibold">Inspect Finished Item:</label>
+                            <input
+                              type="text"
+                              value={inspItemName}
+                              onChange={(e) => setInspItemName(e.target.value)}
+                              className="w-full bg-[#191e28] border border-[#242c3d] rounded-lg px-3 py-2 text-white text-xs font-medium"
+                              placeholder="e.g. Rune 2h sword"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-neutral-400 block text-xs mb-1 font-semibold">Custom / Agreed Unit Price (gp):</label>
+                            <input
+                              type="number"
+                              value={inspAgreedPrice}
+                              onChange={(e) => setInspAgreedPrice(Math.max(1, Number(e.target.value)))}
+                              className="w-full bg-[#191e28] border border-[#242c3d] rounded-lg px-3 py-2 text-amber-400 font-mono font-bold text-xs"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-neutral-400 block text-xs mb-1 font-semibold">Batch Quantity:</label>
+                            <input
+                              type="number"
+                              value={inspQty}
+                              onChange={(e) => setInspQty(Math.max(1, Number(e.target.value)))}
+                              className="w-full bg-[#191e28] border border-[#242c3d] rounded-lg px-3 py-2 text-cyan-400 font-mono font-bold text-xs"
+                            />
+                          </div>
+                        </div>
                       </div>
+
+                      {/* Calculations & Comparison Grid */}
+                      {(() => {
+                        const latest = priceData?.latest || {};
+                        const itemMatch = priceData?.items?.find(i => i.name.toLowerCase() === inspItemName.toLowerCase());
+                        const stapleMatch = (w308StaplesData as any[]).find(s => s.name.toLowerCase() === inspItemName.toLowerCase());
+                        const craftingMatch = (craftingRecipesData as any[]).find(r => r.name.toLowerCase() === inspItemName.toLowerCase());
+
+                        // Live Market Prices
+                        const rawGe = itemMatch ? (itemMatch.bid || itemMatch.buy_price) : 0;
+                        const geNetEa = Math.floor(rawGe * 0.98);
+                        const alchVal = itemMatch ? itemMatch.highalch : 0;
+                        const alchNetEa = alchVal > 0 ? (alchVal - effectiveNatPrice) : 0;
+                        const stapleBuyEa = stapleMatch ? stapleMatch.w308_buy : 0;
+
+                        // Recipe ingredient cost
+                        let recipeCostEa = 0;
+                        let recipeMatsDesc = 'Unknown Recipe';
+                        if (craftingMatch) {
+                          recipeMatsDesc = craftingMatch.materials.map((m: any) => `${m.qty}x ${m.name}`).join(' + ');
+                          recipeCostEa = craftingMatch.materials.reduce((sum: number, m: any) => {
+                            const p = latest[String(m.id)]?.low || latest[String(m.id)]?.high || 0;
+                            return sum + (p * m.qty);
+                          }, 0);
+                        } else if (stapleMatch) {
+                          recipeMatsDesc = stapleMatch.materials_text || `${stapleMatch.bars_required || 3}x Bars`;
+                          const barP = latest[String(stapleMatch.bar_id || 2363)]?.low || latest[String(stapleMatch.bar_id || 2363)]?.high || 12500;
+                          recipeCostEa = (stapleMatch.bars_required || 3) * barP;
+                        }
+
+                        const agreedTotalRev = inspAgreedPrice * inspQty;
+                        const totalMatCost = recipeCostEa * inspQty;
+                        const agreedNetProfit = (inspAgreedPrice - recipeCostEa) * inspQty;
+                        const agreedRoi = recipeCostEa > 0 ? ((inspAgreedPrice - recipeCostEa) / recipeCostEa) * 100 : 0;
+
+                        return (
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                            {/* Card 1: Custom Agreed Deal (e.g. W308 Custom Trade) */}
+                            <div className="bg-[#14171f] p-5 rounded-xl border border-amber-500/30 space-y-4">
+                              <div className="flex justify-between items-center">
+                                <span className="text-xs font-bold text-amber-400 uppercase tracking-wider">Agreed Deal (W308 / Custom)</span>
+                                <span className="text-[10px] bg-amber-500/10 text-amber-400 px-2 py-0.5 rounded font-mono font-bold">
+                                  {inspQty.toLocaleString()} units
+                                </span>
+                              </div>
+                              <div className="space-y-1">
+                                <div className="text-2xl font-black text-white font-mono">{inspAgreedPrice.toLocaleString()} gp/ea</div>
+                                <span className="text-xs text-neutral-400">Total Revenue: {formatGp(agreedTotalRev)}</span>
+                              </div>
+                              <div className="pt-3 border-t border-[#242b3b] space-y-2 text-xs">
+                                <div className="flex justify-between">
+                                  <span className="text-neutral-400">Recipe Mat Cost:</span>
+                                  <span className="text-neutral-200 font-mono">{recipeCostEa > 0 ? `${recipeCostEa.toLocaleString()} gp/ea` : '—'}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-neutral-400">Net Batch Profit:</span>
+                                  <span className={`font-mono font-bold ${agreedNetProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                    {agreedNetProfit >= 0 ? `+${formatGp(agreedNetProfit)}` : `-${formatGp(Math.abs(agreedNetProfit))}`}
+                                  </span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-neutral-400">ROI on Materials:</span>
+                                  <span className={`font-mono font-bold ${agreedRoi >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                    {agreedRoi.toFixed(2)}%
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Card 2: Grand Exchange Liquidation */}
+                            <div className="bg-[#14171f] p-5 rounded-xl border border-[#242b3b] space-y-4">
+                              <div className="flex justify-between items-center">
+                                <span className="text-xs font-bold text-cyan-400 uppercase tracking-wider">Grand Exchange Liquidation</span>
+                                <span className="text-[10px] bg-cyan-500/10 text-cyan-400 px-2 py-0.5 rounded font-mono font-bold">
+                                  2% Tax Deducted
+                                </span>
+                              </div>
+                              <div className="space-y-1">
+                                <div className="text-2xl font-black text-white font-mono">{geNetEa.toLocaleString()} gp/ea</div>
+                                <span className="text-xs text-neutral-400">Gross Price: {rawGe.toLocaleString()} gp</span>
+                              </div>
+                              <div className="pt-3 border-t border-[#242b3b] space-y-2 text-xs">
+                                <div className="flex justify-between">
+                                  <span className="text-neutral-400">Batch GE Net Rev:</span>
+                                  <span className="text-neutral-200 font-mono">{formatGp(geNetEa * inspQty)}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-neutral-400">GE vs Agreed Diff:</span>
+                                  <span className={`font-mono font-bold ${geNetEa >= inspAgreedPrice ? 'text-emerald-400' : 'text-amber-400'}`}>
+                                    {geNetEa >= inspAgreedPrice ? `+${(geNetEa - inspAgreedPrice).toLocaleString()} gp (GE Better)` : `${(geNetEa - inspAgreedPrice).toLocaleString()} gp (Agreed Better)`}
+                                  </span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-neutral-400">GE Net Profit:</span>
+                                  <span className={`font-mono font-bold ${(geNetEa - recipeCostEa) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                    {formatGp((geNetEa - recipeCostEa) * inspQty)}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Card 3: High Alchemy Route */}
+                            <div className="bg-[#14171f] p-5 rounded-xl border border-[#242b3b] space-y-4">
+                              <div className="flex justify-between items-center">
+                                <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">High Alchemy Route</span>
+                                <span className="text-[10px] bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded font-mono font-bold">
+                                  Nat Rune: {effectiveNatPrice} gp
+                                </span>
+                              </div>
+                              <div className="space-y-1">
+                                <div className="text-2xl font-black text-white font-mono">{alchNetEa.toLocaleString()} gp/ea</div>
+                                <span className="text-xs text-neutral-400">High Alch Value: {alchVal.toLocaleString()} gp</span>
+                              </div>
+                              <div className="pt-3 border-t border-[#242b3b] space-y-2 text-xs">
+                                <div className="flex justify-between">
+                                  <span className="text-neutral-400">Magic XP Gained:</span>
+                                  <span className="text-cyan-400 font-mono font-bold">+{(inspQty * 65).toLocaleString()} XP</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-neutral-400">Alch vs Agreed Diff:</span>
+                                  <span className={`font-mono font-bold ${alchNetEa >= inspAgreedPrice ? 'text-emerald-400' : 'text-amber-400'}`}>
+                                    {alchNetEa >= inspAgreedPrice ? `+${(alchNetEa - inspAgreedPrice).toLocaleString()} gp (Alch Better)` : `${(alchNetEa - inspAgreedPrice).toLocaleString()} gp (Agreed Better)`}
+                                  </span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-neutral-400">Alch Net Profit:</span>
+                                  <span className={`font-mono font-bold ${(alchNetEa - recipeCostEa) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                    {formatGp((alchNetEa - recipeCostEa) * inspQty)}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </div>
-
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-xs text-left">
-                        <thead className="bg-[#0f1219] text-neutral-400 uppercase text-[10px] font-mono border-b border-[#242b3b]">
-                          <tr>
-                            <th className="px-3 py-3">Status</th>
-                            <th className="px-3 py-3">Level</th>
-                            <th className="px-3 py-3">Method / Item</th>
-                            <th className="px-3 py-3 text-right">XP/Act</th>
-                            <th className="px-3 py-3 text-right">Actions Needed</th>
-                            <th className="px-3 py-3">Materials Required</th>
-                            <th className="px-3 py-3">Best Disposal</th>
-                            <th className="px-3 py-3 text-right">GP/XP</th>
-                            <th className="px-3 py-3">Verdict / Guide Tip</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-[#1e2433]">
-                          {skillData.brackets
-                            .filter((b: any) => {
-                              if (!isP2P && b.members) return false;
-                              if (guideStyleFilter !== 'all' && b.style !== guideStyleFilter && b.style !== 'quest') return false;
-                              return true;
-                            })
-                            .map((b: any, idx: number) => {
-                              const isCompleted = guideCurrentLevel >= b.max_lvl;
-                              const isCurrent = b.min_lvl <= guideCurrentLevel && guideCurrentLevel < b.max_lvl;
-                              const isLocked = guideCurrentLevel < b.min_lvl;
-
-                              // Actions calculation
-                              let actionsNeeded = 0;
-                              if (isCompleted) {
-                                actionsNeeded = 0;
-                              } else {
-                                const stepStart = Math.max(currentXp, getXpForLevel(b.min_lvl));
-                                const stepEnd = Math.min(targetXp, getXpForLevel(b.max_lvl));
-                                const xpNeeded = Math.max(0, stepEnd - stepStart);
-                                actionsNeeded = b.xp_per_action > 0 ? Math.ceil(xpNeeded / b.xp_per_action) : 0;
-                              }
-
-                              // Materials text
-                              const mats = b.materials || [];
-                              const matsStr = mats.map((m: any) => `${m.qty}x ${m.name}`).join(', ') || 'None / Quest';
-                              const totalMatsStr = isCompleted 
-                                ? 'Completed' 
-                                : actionsNeeded > 0 && mats.length > 0 
-                                ? mats.map((m: any) => `${(m.qty * actionsNeeded).toLocaleString()}x ${m.name}`).join(', ')
-                                : matsStr;
-
-                              // Style badge
-                              const styleBadge = {
-                                fast: <span className="bg-amber-500/10 text-amber-400 px-1.5 py-0.5 rounded text-[9px] font-bold">⚡ Fast</span>,
-                                profit: <span className="bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded text-[9px] font-bold">💰 Profit</span>,
-                                afk: <span className="bg-cyan-500/10 text-cyan-400 px-1.5 py-0.5 rounded text-[9px] font-bold">🧘 AFK</span>,
-                                quest: <span className="bg-purple-500/10 text-purple-400 px-1.5 py-0.5 rounded text-[9px] font-bold">📜 Quest</span>,
-                              }[b.style as 'fast' | 'profit' | 'afk' | 'quest'] || null;
-
-                              // Best disposal verdict
-                              let disposalMethod = '🎒 Drop / Bank';
-                              let gpXpStr = '—';
-                              if (b.style === 'quest') {
-                                disposalMethod = '📜 Quest Turn-in';
-                                gpXpStr = 'FREE';
-                              } else if (b.can_alch && b.output_id) {
-                                disposalMethod = '🔮 High Alch';
-                                gpXpStr = '+0.85 GP/XP';
-                              } else if (b.can_sell_ge) {
-                                disposalMethod = '💰 GE Sell';
-                                gpXpStr = '-2.10 GP/XP';
-                              }
-
-                              return (
-                                <tr
-                                  key={idx}
-                                  className={`hover:bg-[#1a202c] transition-colors ${
-                                    isCurrent ? 'bg-amber-500/5 border-l-2 border-l-amber-500' : isCompleted ? 'opacity-60' : ''
-                                  }`}
-                                >
-                                  <td className="px-3 py-3">
-                                    {isCompleted ? (
-                                      <span className="text-emerald-400 font-semibold flex items-center gap-1">
-                                        <Check className="w-3.5 h-3.5" /> Done
-                                      </span>
-                                    ) : isCurrent ? (
-                                      <span className="text-amber-400 font-bold flex items-center gap-1">
-                                        📍 Active
-                                      </span>
-                                    ) : (
-                                      <span className="text-neutral-500 flex items-center gap-1">
-                                        🔒 Level {b.min_lvl}
-                                      </span>
-                                    )}
-                                  </td>
-                                  <td className="px-3 py-3 font-mono font-bold text-neutral-300">
-                                    {b.min_lvl} - {b.max_lvl}
-                                  </td>
-                                  <td className="px-3 py-3">
-                                    <div className="flex items-center gap-2">
-                                      {b.output_id > 0 && (
-                                        <img
-                                          src={`https://static.runelite.net/cache/item/icon/${b.output_id}.png`}
-                                          alt=""
-                                          className="w-5 h-5 object-contain"
-                                          onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                                        />
-                                      )}
-                                      <div>
-                                        <span className="font-bold text-white block">{b.item_name || b.name}</span>
-                                        <div className="flex items-center gap-1 mt-0.5">
-                                          {styleBadge}
-                                          {b.xp_rate > 0 && (
-                                            <span className="text-[10px] text-neutral-500">
-                                              ~{(b.xp_rate / 1000).toFixed(0)}k XP/hr
-                                            </span>
-                                          )}
-                                        </div>
-                                      </div>
-                                    </div>
-                                  </td>
-                                  <td className="px-3 py-3 text-right font-mono font-bold text-cyan-400">
-                                    +{b.xp_per_action}
-                                  </td>
-                                  <td className="px-3 py-3 text-right font-mono font-bold text-amber-400">
-                                    {actionsNeeded > 0 ? actionsNeeded.toLocaleString() : isCompleted ? '0' : '—'}
-                                  </td>
-                                  <td className="px-3 py-3">
-                                    <span className="text-neutral-300 block">{matsStr}</span>
-                                    {totalMatsStr !== matsStr && (
-                                      <span className="text-[10px] text-neutral-500 block">Total: {totalMatsStr}</span>
-                                    )}
-                                  </td>
-                                  <td className="px-3 py-3">
-                                    <span className="text-neutral-300 font-medium">{disposalMethod}</span>
-                                  </td>
-                                  <td className="px-3 py-3 text-right font-mono font-bold text-neutral-300">
-                                    {gpXpStr}
-                                  </td>
-                                  <td className="px-3 py-3 text-neutral-400 text-[11px] max-w-xs leading-relaxed">
-                                    {b.verdict}
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
+                  )}
                 </div>
               );
             })()}
@@ -3897,6 +5059,30 @@ export default function Dashboard() {
         {/* ========================================================= */}
         {activeTab === 'bond_hub' && (
           <div className="space-y-8 max-w-4xl mx-auto">
+            {/* Live Bond Ticker Cards */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="bg-[#14171f] p-4 rounded-xl border border-[#242b3b] space-y-1">
+                <span className="text-neutral-400 text-[11px] block font-semibold uppercase tracking-wider">Instant Ask (Live Wiki)</span>
+                <div className="text-xl font-black text-emerald-400 font-mono">{bondAsk.toLocaleString()} gp</div>
+                <span className="text-[10px] text-neutral-500 block">Daytime insta-buy price</span>
+              </div>
+              <div className="bg-[#14171f] p-4 rounded-xl border border-amber-500/30 space-y-1">
+                <span className="text-amber-400 text-[11px] block font-semibold uppercase tracking-wider">🌙 Overnight Patient Dip</span>
+                <div className="text-xl font-black text-white font-mono">{bondBid.toLocaleString()} gp</div>
+                <span className="text-[10px] text-emerald-400 block font-bold">-{formatGp(bondSavings)} savings (1–6 UTC)</span>
+              </div>
+              <div className="bg-[#14171f] p-4 rounded-xl border border-[#242b3b] space-y-1">
+                <span className="text-neutral-400 text-[11px] block font-semibold uppercase tracking-wider">7-Day Trading Range</span>
+                <div className="text-xl font-black text-cyan-400 font-mono">{formatGp(bondMin7d)} – {formatGp(bondMax7d)}</div>
+                <span className="text-[10px] text-neutral-500 block">Weekly price extremes</span>
+              </div>
+              <div className="bg-[#14171f] p-4 rounded-xl border border-[#242b3b] space-y-1">
+                <span className="text-neutral-400 text-[11px] block font-semibold uppercase tracking-wider">24h Trade Liquidity</span>
+                <div className="text-xl font-black text-white font-mono">{bondDailyVol.toLocaleString()}</div>
+                <span className="text-[10px] text-neutral-500 block">Bonds exchanged daily</span>
+              </div>
+            </div>
+
             {/* Big Progress Card: Two-Stage Freedom Progress Bar */}
             <div className="bg-[#14171f] p-8 rounded-2xl border border-[#242b3b] shadow-2xl relative overflow-hidden space-y-6">
               <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -3911,28 +5097,58 @@ export default function Dashboard() {
                   <p className="text-sm text-neutral-400">Two-Stage Transition: [Stage 1: Bond Ticket ➔ Stage 2: P2P Operating Cushion]</p>
                 </div>
                 <div className="text-left md:text-right">
-                  <span className="text-xs text-neutral-400">Current Live Bond Price</span>
-                  <div className="text-2xl font-black text-emerald-400 font-mono">
-                    {bondPrice.toLocaleString()} gp
+                  <span className="text-xs text-neutral-400">Total Transition Goal</span>
+                  <div className="text-2xl font-black text-white font-mono">
+                    {formatGp(totalBondGoal)}
                   </div>
-                  <span className="text-[11px] text-amber-400 block mt-0.5">🌙 Overnight Patient Dip: ~{(bondBid / 1000000).toFixed(2)}M gp (-{(bondSavings / 1000).toFixed(0)}k savings)</span>
+                  <span className="text-[11px] text-amber-400 block mt-0.5">Bond ({formatGp(bondAsk)}) + Cushion ({formatGp(cushionTier)})</span>
                 </div>
               </div>
 
-              {/* Strategy Tip Box */}
-              <div className="bg-[#191e29] border border-[#262e3d] rounded-xl p-3 text-xs text-neutral-300 italic">
-                💡 <strong>Overnight Dip Sniping:</strong> Never insta-buy a bond during daytime peak hours. Bidding at the overnight valley (01:00–06:00 UTC) saves ~300k–550k gp compared to insta-buying!
+              {/* Operating Cushion Selector */}
+              <div className="bg-[#191e29] border border-[#262e3d] rounded-xl p-4 space-y-2.5">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
+                  <div>
+                    <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                      <Shield className="w-4 h-4 text-amber-400" /> Choose Operating Cushion Target (Stage 2):
+                    </span>
+                    <p className="text-[11px] text-neutral-400">
+                      Never enter Members broke. Keep a working cash stack so you can immediately buy high-margin P2P alch batches!
+                    </p>
+                  </div>
+                  <span className="text-xs font-mono font-bold text-cyan-400">{formatGp(cushionTier)} Cushion</span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 pt-1">
+                  {[
+                    { val: 3000000, label: '3M (Bare Min)' },
+                    { val: 5000000, label: '5M (Starter)' },
+                    { val: 8000000, label: '8M (Balanced)' },
+                    { val: 12000000, label: '12M (Merchant)' },
+                    { val: 15000000, label: '15M (Whale)' }
+                  ].map((tier) => (
+                    <button
+                      key={tier.val}
+                      onClick={() => setCushionTier(tier.val)}
+                      className={`py-2 px-2 rounded-lg text-xs font-mono font-bold border transition-all text-center ${
+                        cushionTier === tier.val
+                          ? 'bg-amber-500 text-black border-amber-400 shadow-md shadow-amber-500/20'
+                          : 'bg-[#14171f] text-neutral-300 border-[#2b3547] hover:bg-[#202738]'
+                      }`}
+                    >
+                      {tier.label}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {/* Two-Stage Progress Bar Canvas Simulation */}
               {(() => {
-                const cushionVal = 8000000; // 8M Recommended Balanced Cushion
-                const totalGoal = bondPrice + cushionVal;
-                const stage1Pct = Math.min(100, Math.max(0, (totalNetWorth / bondPrice) * 100));
-                const stage2Wealth = Math.max(0, totalNetWorth - bondPrice);
-                const stage2Pct = Math.min(100, Math.max(0, (stage2Wealth / cushionVal) * 100));
-                const isStage1Complete = totalNetWorth >= bondPrice;
-                const isFreedomAchieved = totalNetWorth >= totalGoal;
+                const stage1Pct = Math.min(100, Math.max(0, (totalNetWorth / bondAsk) * 100));
+                const stage2Wealth = Math.max(0, totalNetWorth - bondAsk);
+                const stage2Pct = Math.min(100, Math.max(0, (stage2Wealth / cushionTier) * 100));
+                const isStage1Complete = totalNetWorth >= bondAsk;
+                const isFreedomAchieved = totalNetWorth >= totalBondGoal;
 
                 return (
                   <div className="space-y-3">
@@ -3941,7 +5157,7 @@ export default function Dashboard() {
                         Total Liquid Wealth: <strong className="text-white font-mono">{totalNetWorth.toLocaleString()} gp</strong>
                       </span>
                       <span className="text-amber-400 font-mono font-bold">
-                        Stage 1: {stage1Pct.toFixed(1)}% | Stage 2 (8M Cushion): {stage2Pct.toFixed(1)}%
+                        Stage 1: {stage1Pct.toFixed(1)}% | Stage 2 ({formatGp(cushionTier)}): {stage2Pct.toFixed(1)}%
                       </span>
                     </div>
 
@@ -3954,7 +5170,7 @@ export default function Dashboard() {
                           style={{ width: `${stage1Pct}%` }}
                         ></div>
                         <span className="absolute inset-0 flex items-center justify-center text-[11px] font-bold text-white drop-shadow">
-                          🎟️ Stage 1: Bond ({(bondPrice / 1000000).toFixed(2)}M)
+                          🎟️ Stage 1: Bond ({formatGp(bondAsk)})
                         </span>
                       </div>
 
@@ -3965,7 +5181,7 @@ export default function Dashboard() {
                           style={{ width: `${stage2Pct}%` }}
                         ></div>
                         <span className="absolute inset-0 flex items-center justify-center text-[11px] font-bold text-white drop-shadow">
-                          🛡️ Stage 2: Cushion (8.00M)
+                          🛡️ Stage 2: Cushion ({formatGp(cushionTier)})
                         </span>
                       </div>
                     </div>
@@ -3979,38 +5195,91 @@ export default function Dashboard() {
                         : 'bg-blue-500/10 border-blue-500/30 text-blue-300'
                     }`}>
                       {isFreedomAchieved ? (
-                        <span>🎉 FREEDOM ACHIEVED! You have {totalNetWorth.toLocaleString()} gp (Bond + Full 8M Cushion). You will enter Members with full buying power!</span>
+                        <span>🎉 FREEDOM ACHIEVED! You have {totalNetWorth.toLocaleString()} gp (Bond + Full {formatGp(cushionTier)} Cushion). You will enter Members with full buying power!</span>
                       ) : isStage1Complete ? (
-                        <span>⚠️ Stage 2: Bond Cost Secured! Building Operating Cushion — Need {(totalGoal - totalNetWorth).toLocaleString()} gp more before redeeming so you don&apos;t enter Members broke!</span>
+                        <span>⚠️ Stage 2: Bond Cost Secured! Building Operating Cushion — Need {(totalBondGoal - totalNetWorth).toLocaleString()} gp more before redeeming so you don&apos;t enter Members broke!</span>
                       ) : (
-                        <span>🔒 Stage 1: Accumulating First Bond — Need {(bondPrice - totalNetWorth).toLocaleString()} gp more to reach Bond purchase threshold.</span>
+                        <span>🔒 Stage 1: Accumulating First Bond — Need {(bondAsk - totalNetWorth).toLocaleString()} gp more to reach Bond purchase threshold.</span>
                       )}
                     </div>
                   </div>
                 );
               })()}
 
-              {/* Stats Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              {/* Time-to-Goal Engine Controls */}
+              <div className="bg-[#191e29] border border-[#262e3d] rounded-xl p-4 space-y-3">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
+                  <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                    <Clock className="w-4 h-4 text-amber-400" /> Time-to-Goal Interactive Calculator
+                  </span>
+                  <span className="text-xs text-neutral-400">Configure your training method & daily playtime</span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                  <div>
+                    <label className="text-neutral-400 block mb-1 font-semibold">Earning Method Rate:</label>
+                    <select
+                      value={earningMethod}
+                      onChange={(e) => setEarningMethod(e.target.value as any)}
+                      className="w-full bg-[#14171f] border border-[#2b3547] rounded-lg px-3 py-2 text-white font-medium"
+                    >
+                      <option value="live">⚡ Live Active Alch Pool ({formatGp(liveTopHourlyProfit)}/hr)</option>
+                      <option value="f2p_pure">🧙 F2P Pure High Alch (~450k gp/hr)</option>
+                      <option value="f2p_mixed">🛡️ F2P Alch + Telegrab / Craft (~650k gp/hr)</option>
+                      <option value="p2p_alch">🪄 P2P High Alch Workhorses (~1.20M gp/hr)</option>
+                      <option value="p2p_herb">🌿 P2P Alch + Herb Farm Runs (~1.80M gp/hr)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-neutral-400 block mb-1 font-semibold">Daily Playtime:</label>
+                    <div className="grid grid-cols-6 gap-1.5">
+                      {[1, 2, 4, 6, 8, 12].map((hrs) => (
+                        <button
+                          key={hrs}
+                          onClick={() => setDailyPlaytime(hrs)}
+                          className={`py-2 rounded-lg text-xs font-mono font-bold border transition-all text-center ${
+                            dailyPlaytime === hrs
+                              ? 'bg-amber-500 text-black border-amber-400'
+                              : 'bg-[#14171f] text-neutral-300 border-[#2b3547] hover:bg-[#202738]'
+                          }`}
+                        >
+                          {hrs}h
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Dynamic KPI Engine Summary Grid */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="bg-[#191e29] p-4 rounded-xl border border-[#242c3d]">
-                  <span className="text-xs text-neutral-400">Remaining GP to Bond</span>
+                  <span className="text-xs text-neutral-400 block">Remaining to Goal</span>
                   <div className="text-lg font-bold text-white font-mono mt-1">
-                    {remainingGp > 0 ? `${remainingGp.toLocaleString()} gp` : 'BOND READY! 🎉'}
+                    {remainingTotalGp > 0 ? `${formatGp(remainingTotalGp)}` : 'GOAL MET! 🎉'}
                   </div>
+                  <span className="text-[10px] text-neutral-500">Bond + Cushion</span>
                 </div>
                 <div className="bg-[#191e29] p-4 rounded-xl border border-[#242c3d]">
-                  <span className="text-xs text-neutral-400">Est. Alch Time Remaining</span>
+                  <span className="text-xs text-neutral-400 block">Total Grind Hours</span>
                   <div className="text-lg font-bold text-amber-400 font-mono mt-1">
-                    {remainingGp > 0 ? `~${hoursRemaining} Hours` : '0 Hours'}
+                    {remainingTotalGp > 0 ? `~${grindHoursToGoal.toFixed(1)} Hours` : '0 Hours'}
                   </div>
+                  <span className="text-[10px] text-neutral-500">At {formatGp(methodEarningRate)}/hr</span>
                 </div>
                 <div className="bg-[#191e29] p-4 rounded-xl border border-[#242c3d]">
-                  <span className="text-xs text-neutral-400">Average Earning Rate</span>
-                  <div className="text-lg font-bold text-emerald-400 font-mono mt-1">+650k gp/hr</div>
+                  <span className="text-xs text-neutral-400 block">Real-World Days</span>
+                  <div className="text-lg font-bold text-emerald-400 font-mono mt-1">
+                    {remainingTotalGp > 0 ? `~${daysToGoal.toFixed(1)} Days` : '0 Days'}
+                  </div>
+                  <span className="text-[10px] text-neutral-500">At {dailyPlaytime}h / day</span>
                 </div>
                 <div className="bg-[#191e29] p-4 rounded-xl border border-[#242c3d]">
-                  <span className="text-xs text-neutral-400">Operating Cushion Target</span>
-                  <div className="text-lg font-bold text-cyan-400 font-mono mt-1">8,000,000 gp</div>
+                  <span className="text-xs text-neutral-400 block">High Alchs Needed</span>
+                  <div className="text-lg font-bold text-cyan-400 font-mono mt-1">
+                    {remainingTotalGp > 0 ? `${alchsNeededToGoal.toLocaleString()}` : '0'}
+                  </div>
+                  <span className="text-[10px] text-neutral-500">~{avgProfitPerAlch} gp/cast</span>
                 </div>
               </div>
             </div>
@@ -4140,11 +5409,28 @@ export default function Dashboard() {
             <div className="bg-[#14171f] p-6 rounded-2xl border border-[#242b3b] space-y-4">
               <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
-                  <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                    <Clock className="w-5 h-5 text-amber-400" /> 4-Hour Grand Exchange Buy Limit Timers
-                  </h3>
+                  <div className="flex items-center gap-3">
+                    <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                      <Clock className="w-5 h-5 text-amber-400" /> 4-Hour Grand Exchange Buy Limit Timers
+                    </h3>
+                    <button
+                      onClick={() => {
+                        setSoundEnabled(!soundEnabled);
+                        showToast(soundEnabled ? '🔇 Timer sound alerts muted' : '🔊 Timer sound alerts enabled');
+                      }}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 border transition-all ${
+                        soundEnabled
+                          ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                          : 'bg-[#1b202c] text-neutral-400 border-[#2b3547]'
+                      }`}
+                      title="Toggle sound alert on timer expiry"
+                    >
+                      {soundEnabled ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
+                      {soundEnabled ? 'Sound On' : 'Sound Off'}
+                    </button>
+                  </div>
                   <p className="text-xs text-neutral-400 mt-1">
-                    Tracks when your 4-hour Grand Exchange buy limits reset so you never miss a restock window.
+                    Tracks partial quantities bought and exact cooldown resets. Limit deductions automatically update in the High Alch table.
                   </p>
                 </div>
 
@@ -4191,33 +5477,72 @@ export default function Dashboard() {
                     const hours = Math.floor(remainingSec / 3600);
                     const mins = Math.floor((remainingSec % 3600) / 60);
                     const isExpired = remainingSec <= 0;
+                    const bought = t.qtyBought !== undefined ? t.qtyBought : t.limit;
+                    const remainingLimit = Math.max(0, t.limit - bought);
+                    const progressPct = Math.min(100, Math.max(0, ((4 * 3600 - remainingSec) / (4 * 3600)) * 100));
+
                     return (
-                      <div key={t.id} className="bg-[#191e29] p-4 rounded-xl border border-[#242c3d] flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <img
-                            src={`https://static.runelite.net/cache/item/icon/${t.id}.png`}
-                            alt=""
-                            className="w-8 h-8 object-contain shrink-0"
-                            onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                          />
-                          <div>
-                            <span className="font-bold text-white text-sm block">{t.name}</span>
-                            <span className="text-xs text-neutral-400">Limit: {t.limit} items / 4h</span>
+                      <div key={t.id} className="bg-[#191e29] p-4 rounded-xl border border-[#242c3d] space-y-2.5">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <img
+                              src={`https://static.runelite.net/cache/item/icon/${t.id}.png`}
+                              alt=""
+                              className="w-8 h-8 object-contain shrink-0"
+                              onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                            />
+                            <div>
+                              <span className="font-bold text-white text-sm block">{t.name}</span>
+                              <div className="flex items-center gap-2 text-xs text-neutral-400 mt-0.5">
+                                <span>Limit: <strong className="text-neutral-200">{t.limit}</strong></span>
+                                <span className="text-neutral-600">•</span>
+                                <span>Bought: <strong className="text-amber-400">{bought}</strong></span>
+                                <span className="text-neutral-600">•</span>
+                                <span>Remaining: <strong className="text-emerald-400">{remainingLimit}</strong></span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-3">
+                            <div className="text-right">
+                              <span className={`font-mono font-bold text-base block ${isExpired ? 'text-emerald-400' : 'text-amber-400'}`}>
+                                {isExpired ? 'LIMIT RESET! ✅' : `${hours}h ${mins}m left`}
+                              </span>
+                              <span className="text-[11px] text-neutral-500">{isExpired ? 'Full limit ready' : 'Counting down'}</span>
+                            </div>
+
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                onClick={() => setEditTimerModal({ show: true, timerId: t.id, qty: bought, name: t.name, limit: t.limit })}
+                                className="px-2.5 py-1.5 rounded-lg bg-[#222a3a] hover:bg-[#2d384d] text-cyan-300 text-xs font-semibold transition-all border border-[#2b3548]"
+                                title="Edit quantity bought"
+                              >
+                                ✏️ Edit
+                              </button>
+                              <button
+                                onClick={() => handleResetTimer(t.id)}
+                                className="px-2.5 py-1.5 rounded-lg bg-[#222a3a] hover:bg-[#2d384d] text-amber-300 text-xs font-semibold transition-all border border-[#2b3548]"
+                                title="Reset 4-hour countdown"
+                              >
+                                🔄 Reset
+                              </button>
+                              <button
+                                onClick={() => handleDeleteTimer(t.id)}
+                                className="p-1.5 hover:bg-[#252c3f] rounded-lg text-neutral-500 hover:text-rose-400 transition-colors"
+                                title="Delete timer"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
                           </div>
                         </div>
-                        <div className="flex items-center gap-4">
-                          <div className="text-right">
-                            <span className={`font-mono font-bold text-base block ${isExpired ? 'text-emerald-400' : 'text-amber-400'}`}>
-                              {isExpired ? 'LIMIT RESET! ✅' : `${hours}h ${mins}m left`}
-                            </span>
-                            <span className="text-[11px] text-neutral-500">{isExpired ? 'Ready to buy' : 'Counting down'}</span>
-                          </div>
-                          <button
-                            onClick={() => handleDeleteTimer(t.id)}
-                            className="p-1.5 hover:bg-[#252c3f] rounded text-neutral-500 hover:text-rose-400 transition-colors"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+
+                        {/* Visual Progress Bar */}
+                        <div className="w-full h-1.5 bg-[#14171f] rounded-full overflow-hidden border border-white/5">
+                          <div
+                            className={`h-full transition-all duration-500 ${isExpired ? 'bg-emerald-400' : 'bg-gradient-to-r from-amber-500 to-yellow-400'}`}
+                            style={{ width: `${progressPct}%` }}
+                          ></div>
                         </div>
                       </div>
                     );
@@ -4435,7 +5760,14 @@ export default function Dashboard() {
                                 <td className="px-3 py-2.5 text-right text-cyan-400">
                                   +{(entry.magicXp || 0).toLocaleString()}
                                 </td>
-                                <td className="px-3 py-2.5 text-center">
+                                <td className="px-3 py-2.5 text-center flex items-center justify-center gap-1.5">
+                                  <button
+                                    onClick={() => setEditSessionModal({ show: true, entryId: entry.id, qty: entry.qty, price: entry.price, itemName: entry.itemName, role: entry.role })}
+                                    title="Edit quantity or buy price"
+                                    className="text-neutral-500 hover:text-cyan-400 transition-colors p-1"
+                                  >
+                                    ✏️
+                                  </button>
                                   <button
                                     onClick={() => handleDeleteSessionItem(entry.id)}
                                     title="Delete entry"
@@ -4905,6 +6237,249 @@ export default function Dashboard() {
                   className="bg-amber-500 hover:bg-amber-400 text-black font-bold px-5 py-2 rounded-xl text-xs transition-all shadow-md shadow-amber-500/20"
                 >
                   ✓ Save Entry to Ledger
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal: Set GE Purchase Quantity / Partial Limit Dialog */}
+        {quantityModal.show && quantityModal.item && (
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-[#14171f] border border-[#2b3447] rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in duration-150">
+              <div className="flex justify-between items-start border-b border-[#202532] pb-3">
+                <div className="flex items-center gap-2">
+                  <img
+                    src={`https://static.runelite.net/cache/item/icon/${quantityModal.item.id}.png`}
+                    alt=""
+                    className="w-7 h-7 object-contain"
+                    onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                  />
+                  <div>
+                    <h3 className="text-base font-bold text-white">Start 4h GE Cooldown Timer</h3>
+                    <p className="text-xs text-neutral-400">{quantityModal.item.name}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setQuantityModal({ show: false, item: null, qty: 70 })}
+                  className="text-neutral-500 hover:text-white text-lg font-bold p-1"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="space-y-3 text-xs">
+                <div>
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="text-neutral-300 font-semibold">Quantity Purchased in this Cooldown:</label>
+                    <span className="text-neutral-400 font-mono">Limit: {quantityModal.item.base_limit || quantityModal.item.buy_limit || 70}</span>
+                  </div>
+                  <input
+                    type="number"
+                    min={1}
+                    max={quantityModal.item.base_limit || quantityModal.item.buy_limit || 70}
+                    value={quantityModal.qty}
+                    onChange={(e) => setQuantityModal(prev => ({ ...prev, qty: Math.max(1, Number(e.target.value)) }))}
+                    className="w-full bg-[#1b202c] border border-[#2b3548] rounded-lg px-3 py-2 text-amber-400 font-mono font-bold text-sm"
+                  />
+                </div>
+
+                <div className="flex gap-2">
+                  {[
+                    { label: 'Full Limit', mult: 1 },
+                    { label: '50%', mult: 0.5 },
+                    { label: '25%', mult: 0.25 },
+                  ].map((preset, idx) => {
+                    const lim = quantityModal.item.base_limit || quantityModal.item.buy_limit || 70;
+                    return (
+                      <button
+                        key={idx}
+                        onClick={() => setQuantityModal(prev => ({ ...prev, qty: Math.max(1, Math.floor(lim * preset.mult)) }))}
+                        className="flex-1 py-1 bg-[#1e2535] hover:bg-[#283247] text-neutral-300 rounded font-mono text-xs border border-[#2a3449]"
+                      >
+                        {preset.label} ({Math.max(1, Math.floor(lim * preset.mult))})
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Calculation preview */}
+                {(() => {
+                  const buyPrice = quantityModal.item.buy_price || quantityModal.item.bid || 1000;
+                  const profitEa = quantityModal.item.profit || 0;
+                  const totalCost = quantityModal.qty * buyPrice;
+                  const totalProfit = quantityModal.qty * profitEa;
+                  const lim = quantityModal.item.base_limit || quantityModal.item.buy_limit || 70;
+                  const rem = Math.max(0, lim - quantityModal.qty);
+
+                  return (
+                    <div className="bg-[#191e28] p-3 rounded-xl border border-[#242c3d] space-y-1 font-mono text-xs">
+                      <div className="flex justify-between text-neutral-400">
+                        <span>Total Buy Outlay:</span>
+                        <span>{totalCost.toLocaleString()} gp</span>
+                      </div>
+                      <div className="flex justify-between text-emerald-400 font-semibold">
+                        <span>Expected Net Profit:</span>
+                        <span>+{totalProfit.toLocaleString()} gp</span>
+                      </div>
+                      <div className="flex justify-between text-neutral-300 pt-1 border-t border-white/5">
+                        <span>Remaining Available in 4h:</span>
+                        <span className="text-amber-400 font-bold">{rem.toLocaleString()} units</span>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-[#202532]">
+                <button
+                  type="button"
+                  onClick={() => setQuantityModal({ show: false, item: null, qty: 70 })}
+                  className="bg-[#1b202c] hover:bg-[#252c3c] text-neutral-300 font-semibold px-4 py-2 rounded-xl text-xs transition-all border border-[#2b3548]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleAddTimer(quantityModal.item, quantityModal.qty);
+                    setQuantityModal({ show: false, item: null, qty: 70 });
+                  }}
+                  className="bg-amber-500 hover:bg-amber-400 text-black font-bold px-5 py-2 rounded-xl text-xs transition-all shadow-md shadow-amber-500/20"
+                >
+                  ⏱️ Start 4h Cooldown
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal: Edit Existing 4h Timer Dialog */}
+        {editTimerModal.show && (
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-[#14171f] border border-[#2b3447] rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in duration-150">
+              <div className="flex justify-between items-start border-b border-[#202532] pb-3">
+                <div>
+                  <h3 className="text-base font-bold text-white">Edit Timer Cooldown</h3>
+                  <p className="text-xs text-neutral-400">{editTimerModal.name} (Limit: {editTimerModal.limit})</p>
+                </div>
+                <button
+                  onClick={() => setEditTimerModal({ show: false, timerId: null, qty: 0, name: '', limit: 70 })}
+                  className="text-neutral-500 hover:text-white text-lg font-bold p-1"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="space-y-3 text-xs">
+                <div>
+                  <label className="text-neutral-300 font-semibold block mb-1">Quantity Bought So Far:</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={editTimerModal.limit}
+                    value={editTimerModal.qty}
+                    onChange={(e) => setEditTimerModal(prev => ({ ...prev, qty: Math.max(0, Math.min(editTimerModal.limit, Number(e.target.value))) }))}
+                    className="w-full bg-[#1b202c] border border-[#2b3548] rounded-lg px-3 py-2 text-amber-400 font-mono font-bold text-sm"
+                  />
+                </div>
+
+                <div className="bg-[#191e28] p-3 rounded-xl border border-[#242c3d] flex justify-between items-center text-xs">
+                  <span className="text-neutral-400">Available Limit Remaining:</span>
+                  <span className="text-emerald-400 font-mono font-bold text-sm">
+                    {Math.max(0, editTimerModal.limit - editTimerModal.qty)} units
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex justify-between items-center gap-2 pt-2 border-t border-[#202532]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (editTimerModal.timerId) handleResetTimer(editTimerModal.timerId);
+                    setEditTimerModal({ show: false, timerId: null, qty: 0, name: '', limit: 70 });
+                  }}
+                  className="bg-[#242c3d] hover:bg-[#2e384e] text-amber-400 font-bold px-3 py-2 rounded-xl text-xs transition-all border border-[#34405a]"
+                >
+                  🔄 Reset Cooldown
+                </button>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditTimerModal({ show: false, timerId: null, qty: 0, name: '', limit: 70 })}
+                    className="bg-[#1b202c] hover:bg-[#252c3c] text-neutral-300 font-semibold px-4 py-2 rounded-xl text-xs transition-all border border-[#2b3548]"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (editTimerModal.timerId) handleUpdateTimerQty(editTimerModal.timerId, editTimerModal.qty);
+                    }}
+                    className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-5 py-2 rounded-xl text-xs transition-all shadow-md shadow-emerald-600/20"
+                  >
+                    ✓ Save Quantity
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal: Edit Session Ledger Entry Dialog */}
+        {editSessionModal.show && (
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-[#14171f] border border-[#2b3447] rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in duration-150">
+              <div className="flex justify-between items-start border-b border-[#202532] pb-3">
+                <div>
+                  <h3 className="text-base font-bold text-white">Edit Ledger Entry</h3>
+                  <p className="text-xs text-neutral-400">{editSessionModal.itemName}</p>
+                </div>
+                <button
+                  onClick={() => setEditSessionModal({ show: false, entryId: null, qty: 100, price: 37600, itemName: '', role: 'alch' })}
+                  className="text-neutral-500 hover:text-white text-lg font-bold p-1"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <div>
+                  <label className="text-neutral-300 font-semibold block mb-1">Quantity:</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={editSessionModal.qty}
+                    onChange={(e) => setEditSessionModal(prev => ({ ...prev, qty: Math.max(1, Number(e.target.value)) }))}
+                    className="w-full bg-[#1b202c] border border-[#2b3548] rounded-lg px-3 py-2 text-white font-mono font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="text-neutral-300 font-semibold block mb-1">Buy Price (ea):</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={editSessionModal.price}
+                    onChange={(e) => setEditSessionModal(prev => ({ ...prev, price: Math.max(1, Number(e.target.value)) }))}
+                    className="w-full bg-[#1b202c] border border-[#2b3548] rounded-lg px-3 py-2 text-amber-400 font-mono font-bold"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-[#202532]">
+                <button
+                  type="button"
+                  onClick={() => setEditSessionModal({ show: false, entryId: null, qty: 100, price: 37600, itemName: '', role: 'alch' })}
+                  className="bg-[#1b202c] hover:bg-[#252c3c] text-neutral-300 font-semibold px-4 py-2 rounded-xl text-xs transition-all border border-[#2b3548]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveEditSession}
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-5 py-2 rounded-xl text-xs transition-all shadow-md shadow-emerald-600/20"
+                >
+                  ✓ Update Ledger
                 </button>
               </div>
             </div>
