@@ -1,0 +1,110 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://frgpckemanidliasrdrm.supabase.co';
+const supabaseSecret = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+
+// Admin client to safely handle sync events
+const supabaseAdmin = createClient(supabaseUrl, supabaseSecret);
+
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const { sync_token, rsn, coins, nature_runes, total_wealth, world, is_members, alchs } = body;
+
+    if (!rsn) {
+      return NextResponse.json({ error: 'Missing rsn parameter' }, { status: 400 });
+    }
+
+    let userId: string | null = null;
+
+    // Optional user token verification
+    if (sync_token) {
+      const { data: profile } = await supabaseAdmin
+        .from('profiles')
+        .select('id')
+        .eq('sync_token', sync_token)
+        .single();
+
+      if (profile) {
+        userId = profile.id;
+      }
+    }
+
+    // 1. Upsert Character Status
+    if (userId) {
+      await supabaseAdmin.from('characters').upsert(
+        {
+          user_id: userId,
+          rsn,
+          coins: coins || 0,
+          nature_runes: nature_runes || 0,
+          total_wealth: total_wealth || 0,
+          world: world || 308,
+          is_members: is_members || false,
+          last_seen: new Date().toISOString(),
+        },
+        { onConflict: 'user_id,rsn' }
+      );
+    }
+
+    // 2. Insert Batch Alch Logs
+    if (Array.isArray(alchs) && alchs.length > 0 && userId) {
+      const insertRows = alchs.map((a: any) => ({
+        user_id: userId,
+        rsn,
+        item_id: a.item_id,
+        item_name: a.item_name,
+        qty: a.qty,
+        buy_price: a.buy_price,
+        nat_price: a.nat_price,
+        alch_val: a.alch_val,
+        profit: a.profit,
+        xp: a.xp || 0,
+        cost_basis_type: a.cost_basis_type || 'GE',
+      }));
+
+      await supabaseAdmin.from('alch_sessions').insert(insertRows);
+
+      // 3. Update Daily Stats Rollup
+      const totalBatchProfit = alchs.reduce((sum: number, a: any) => sum + (a.profit || 0), 0);
+      const totalBatchAlchs = alchs.reduce((sum: number, a: any) => sum + (a.qty || 0), 0);
+      const totalBatchXp = alchs.reduce((sum: number, a: any) => sum + (a.xp || 0), 0);
+
+      const today = new Date().toISOString().split('T')[0];
+
+      const { data: existingDay } = await supabaseAdmin
+        .from('daily_stats')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('rsn', rsn)
+        .eq('date', today)
+        .single();
+
+      if (existingDay) {
+        await supabaseAdmin
+          .from('daily_stats')
+          .update({
+            total_alchs: existingDay.total_alchs + totalBatchAlchs,
+            total_profit: existingDay.total_profit + totalBatchProfit,
+            total_xp: existingDay.total_xp + totalBatchXp,
+          })
+          .eq('id', existingDay.id);
+      } else {
+        await supabaseAdmin.from('daily_stats').insert({
+          user_id: userId,
+          rsn,
+          date: today,
+          total_alchs: totalBatchAlchs,
+          total_profit: totalBatchProfit,
+          total_xp: totalBatchXp,
+        });
+      }
+    }
+
+    return NextResponse.json({ success: true, timestamp: Date.now() });
+  } catch (err: any) {
+    console.error('Sync error:', err);
+    return NextResponse.json({ error: err.message || 'Server error' }, { status: 500 });
+  }
+}
