@@ -64,6 +64,189 @@ interface PriceData {
   items: AlchItem[];
 }
 
+// Lightweight ToolTip Component matching desktop gui.py ToolTip
+function Tooltip({ text, children, position = 'top' }: { text: string; children: React.ReactNode; position?: 'top' | 'bottom' | 'left' | 'right' }) {
+  const [visible, setVisible] = useState(false);
+  if (!text) return <>{children}</>;
+
+  const posClasses = {
+    top: 'bottom-full left-1/2 -translate-x-1/2 mb-2',
+    bottom: 'top-full left-1/2 -translate-x-1/2 mt-2',
+    left: 'right-full top-1/2 -translate-y-1/2 mr-2',
+    right: 'left-full top-1/2 -translate-y-1/2 ml-2'
+  }[position];
+
+  return (
+    <div 
+      className="relative inline-flex items-center"
+      onMouseEnter={() => setVisible(true)}
+      onMouseLeave={() => setVisible(false)}
+    >
+      {children}
+      {visible && (
+        <div className={`absolute z-50 ${posClasses} pointer-events-none transition-opacity duration-150`}>
+          <div className="bg-[#18181a] text-[#f1f1f1] border border-[#3e3e46] rounded-md px-2.5 py-1.5 text-[11px] leading-relaxed shadow-xl whitespace-pre-line max-w-xs text-left">
+            {text}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Rich Row Hover Card matching desktop RowToolTip / get_alch_row_tooltip
+function RowHoverCard({ 
+  item, 
+  effectiveNatPrice,
+  children 
+}: { 
+  item: AlchItem & { profit: number; hourly_profit: number; batch_profit: number; max_afford: number; roi: number; speed: { label: string; color: string } };
+  effectiveNatPrice: number;
+  children: React.ReactNode;
+}) {
+  const [visible, setVisible] = useState(false);
+  const spread = item.ask && item.bid ? item.ask - item.bid : 0;
+  const spreadPct = item.bid > 0 && spread > 0 ? ((spread / item.bid) * 100).toFixed(1) : '0.0';
+  const hasWarning = item.volume < item.buy_limit;
+
+  return (
+    <div 
+      className="relative"
+      onMouseEnter={() => setVisible(true)}
+      onMouseLeave={() => setVisible(false)}
+    >
+      {children}
+      {visible && (
+        <div className="absolute left-10 top-full mt-1 z-50 pointer-events-none w-80">
+          <div className={`bg-[#1a1a1d] border ${hasWarning ? 'border-amber-500' : 'border-[#4a4a52]'} rounded-lg p-3 text-xs shadow-2xl text-left space-y-2`}>
+            <div className="flex items-center justify-between border-b border-[#2f2f35] pb-2">
+              <div className="flex items-center gap-2">
+                <img
+                  src={`https://static.runelite.net/cache/item/icon/${item.id}.png`}
+                  alt=""
+                  className="w-5 h-5 object-contain"
+                  onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                />
+                <span className="font-bold text-amber-400">{item.name}</span>
+              </div>
+              <span className={`text-[10px] font-bold ${item.members ? 'text-amber-400' : 'text-emerald-400'}`}>
+                {item.members ? 'Members (P2P)' : 'Free-to-Play (F2P)'}
+              </span>
+            </div>
+
+            <div className="space-y-1 font-mono text-[11px]">
+              <div className="flex justify-between">
+                <span className="text-neutral-400">Target Offer (Bid):</span>
+                <span className="text-emerald-400 font-bold">{item.bid?.toLocaleString() || item.buy_price.toLocaleString()} gp</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-neutral-400">Instant Buy (Ask):</span>
+                <span className="text-neutral-300">{item.ask ? `${item.ask.toLocaleString()} gp` : '—'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-neutral-400">Margin Spread:</span>
+                <span className="text-neutral-400">+{spread.toLocaleString()} gp ({spreadPct}%)</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-neutral-400">Nature Rune:</span>
+                <span className="text-cyan-400">{effectiveNatPrice} gp</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-neutral-400">High Alch Value:</span>
+                <span className="text-purple-400 font-bold">{item.highalch.toLocaleString()} gp</span>
+              </div>
+              <div className="flex justify-between border-t border-[#2f2f35] pt-1">
+                <span className="text-neutral-400">Net Profit / Alch:</span>
+                <span className={`font-bold ${item.profit > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {item.profit > 0 ? `+${item.profit.toLocaleString()}` : item.profit.toLocaleString()} gp ({item.roi.toFixed(1)}% ROI)
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-neutral-400">Hourly Rate (1.2k/hr):</span>
+                <span className="text-amber-400 font-bold">
+                  {item.hourly_profit > 0 ? `+${(item.hourly_profit / 1000).toFixed(0)}k gp/hr` : `${(item.hourly_profit / 1000).toFixed(0)}k/hr`}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-neutral-400">4h Buy Limit:</span>
+                <span className="text-neutral-200">{item.buy_limit.toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-neutral-400">4h Batch Profit:</span>
+                <span className="text-emerald-400 font-bold">+{item.batch_profit.toLocaleString()} gp</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-neutral-400">24h Market Volume:</span>
+                <span className="text-neutral-300">{item.volume.toLocaleString()} traded</span>
+              </div>
+            </div>
+
+            {hasWarning && (
+              <div className="border-t border-[#2f2f35] pt-1.5 text-[10px] text-amber-400 font-semibold flex items-start gap-1">
+                <span>⚠️ Volume Capped: 24h market volume ({item.volume.toLocaleString()}) is below the 4h buy limit ({item.buy_limit.toLocaleString()}).</span>
+              </div>
+            )}
+
+            <div className="border-t border-[#2f2f35] pt-1 text-[10px] text-neutral-500 italic">
+              💡 Click row to copy bid price. Click cart icon to add to 8-slot GE bar.
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Global Market Timing Function matching desktop gui.py get_market_timing_info
+function getMarketTimingInfo() {
+  const now = new Date();
+  const utcHours = now.getUTCHours() + now.getUTCMinutes() / 60.0;
+  const timeStr = `${String(now.getUTCHours()).padStart(2, '0')}:${String(now.getUTCMinutes()).padStart(2, '0')} UTC`;
+
+  if (utcHours >= 14.0 && utcHours < 22.0) {
+    let pct = Math.round(75 + 25 * (1.0 - Math.abs(utcHours - 18.0) / 4.0));
+    pct = Math.max(75, Math.min(100, pct));
+    const estPlayers = `~${Math.round(115000 + (pct - 75) * 1800).toLocaleString()} online`;
+    const barN = Math.round(pct / 10);
+    const bar = "█".repeat(barN) + "░".repeat(10 - barN);
+    return {
+      timeStr,
+      badge: "🟢 Peak Liquidity Window (Fast Fills & High Volume)",
+      badgeColor: "text-emerald-400",
+      activity: `Activity: [${bar}] ${pct}% (${estPlayers})`,
+      advice: "💡 Market Tip: Prime EU/US trading hours! Buy orders fill in 2-5m. Best time for Fast Fills & Workhorses.",
+      recCat: "fast"
+    };
+  } else if (utcHours >= 22.0 || utcHours < 2.0) {
+    return {
+      timeStr,
+      badge: "🟡 Evening Wind-Down (Good for Setting Overnight Orders)",
+      badgeColor: "text-amber-400",
+      activity: "Activity: [██████░░░░] 65% (~95,000 online)",
+      advice: "💡 Market Tip: US late evening. Volume tapering off. Queue up high-profit overnight bids.",
+      recCat: "overnight"
+    };
+  } else if (utcHours >= 2.0 && utcHours < 10.0) {
+    return {
+      timeStr,
+      badge: "🌙 Off-Peak / Sleepers Window (Wide Overnight Margins)",
+      badgeColor: "text-purple-400",
+      activity: "Activity: [████░░░░░░] 40% (~55,000 online)",
+      advice: "💡 Market Tip: Lowest global player count. Patient low bids fill with zero competition from undercut sellers.",
+      recCat: "overnight"
+    };
+  } else {
+    return {
+      timeStr,
+      badge: "🌅 Morning Ramp-Up (Volume Building)",
+      badgeColor: "text-blue-400",
+      activity: "Activity: [██████░░░░] 60% (~85,000 online)",
+      advice: "💡 Market Tip: European morning. Market liquidity is steadily accelerating towards afternoon peak.",
+      recCat: "workhorse"
+    };
+  }
+}
+
 export default function Dashboard() {
   // 5 Main Super-Hubs
   const [activeTab, setActiveTab] = useState<'alch_hub' | 'craft_hub' | 'bond_hub' | 'timers_hub' | 'session_hub'>('alch_hub');
@@ -803,6 +986,34 @@ export default function Dashboard() {
         {/* ========================================================= */}
         {activeTab === 'alch_hub' && (
           <div className="space-y-6">
+            {/* Global Market Clock & Strategy Banner Card (Verbatim port of get_market_timing_info from desktop gui.py) */}
+            {(() => {
+              const timing = getMarketTimingInfo();
+              return (
+                <div className="bg-[#14171f] p-4 rounded-xl border border-[#242b3b] shadow-lg flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Tooltip text="Current Grand Exchange server time (UTC).\nOSRS market activity cycles strictly follow UTC time zones.">
+                      <span className="text-amber-400 font-extrabold text-sm flex items-center gap-1.5 cursor-help">
+                        <Clock className="w-4 h-4 text-amber-400" />
+                        🕒 {timing.timeStr}
+                      </span>
+                    </Tooltip>
+                    <span className="text-neutral-500">|</span>
+                    <span className={`text-xs font-bold ${timing.badgeColor}`}>
+                      {timing.badge}
+                    </span>
+                    <span className="text-neutral-500">|</span>
+                    <span className="text-xs font-mono text-cyan-400 font-semibold">
+                      {timing.activity}
+                    </span>
+                  </div>
+                  <div className="text-xs text-neutral-300 italic bg-[#1a1f2b] px-3 py-1.5 rounded-lg border border-[#2b3548]">
+                    {timing.advice}
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* Sub-view Navigation Pills */}
             <div className="flex flex-wrap gap-2 border-b border-[#202530] pb-4">
               {[
@@ -1011,27 +1222,71 @@ export default function Dashboard() {
                     <table className="w-full text-left text-sm">
                       <thead className="bg-[#1a1f2b] text-neutral-400 uppercase text-xs border-b border-[#262e3f]">
                         <tr>
-                          <th className="px-3 py-3.5 text-center">Cart</th>
-                          <th className="px-4 py-3.5">Item Name</th>
-                          <th className="px-3 py-3.5 cursor-pointer" onClick={() => setSortBy('buy_price')}>
-                            Offer (Bid)
+                          <th className="px-3 py-3.5 text-center">
+                            <Tooltip text="Shopping Cart:&#10;Shows items in cart. Click row cell to copy quantity number to clipboard.">
+                              <span>Cart</span>
+                            </Tooltip>
                           </th>
-                          <th className="px-3 py-3.5">Instant (Ask)</th>
-                          <th className="px-3 py-3.5 cursor-pointer" onClick={() => setSortBy('highalch')}>Alch Value</th>
+                          <th className="px-4 py-3.5">
+                            <Tooltip text="Item Name:&#10;Grand Exchange item name. Click row cell to copy name to clipboard for GE search. Hover to view detailed market intel.">
+                              <span>Item Name</span>
+                            </Tooltip>
+                          </th>
+                          <th className="px-3 py-3.5 cursor-pointer" onClick={() => setSortBy('buy_price')}>
+                            <Tooltip text="Target Offer (Bid):&#10;Best patient buy price from active sellers. Click cell to copy price.&#10;If using Smart strategy, bids Bid + 1 gp for queue priority.">
+                              <span>Offer (Bid)</span>
+                            </Tooltip>
+                          </th>
+                          <th className="px-3 py-3.5">
+                            <Tooltip text="Instant Buy (Ask):&#10;Instant purchase price from active sellers. Fills immediately. Click cell to copy.">
+                              <span>Instant (Ask)</span>
+                            </Tooltip>
+                          </th>
+                          <th className="px-3 py-3.5 cursor-pointer" onClick={() => setSortBy('highalch')}>
+                            <Tooltip text="High Alch Value:&#10;Fixed gold returned by casting the High Level Alchemy spell.">
+                              <span>Alch Value</span>
+                            </Tooltip>
+                          </th>
                           <th className="px-3 py-3.5 cursor-pointer text-amber-400" onClick={() => setSortBy('profit')}>
-                            Profit / Alch ▼
+                            <Tooltip text="Profit / Alch:&#10;Net GP profit per cast = High Alch Value - Item Buy Price - Nature Rune Cost. Click to sort.">
+                              <span>Profit / Alch ▼</span>
+                            </Tooltip>
                           </th>
                           <th className="px-3 py-3.5 cursor-pointer" onClick={() => setSortBy('hourly_profit')}>
-                            Profit / Hr (1.2k)
+                            <Tooltip text="Profit / Hr:&#10;Estimated profit per hour at standard 1,200 casts/hour rate. Click to sort.">
+                              <span>Profit / Hr (1.2k)</span>
+                            </Tooltip>
                           </th>
-                          <th className="px-3 py-3.5">Fill Speed</th>
-                          <th className="px-3 py-3.5">4h Limit</th>
+                          <th className="px-3 py-3.5">
+                            <Tooltip text="Fill Speed &amp; 5m Sold:&#10;Estimated wait time or transaction velocity. High volume staples fill in under 2 minutes.">
+                              <span>Fill Speed</span>
+                            </Tooltip>
+                          </th>
+                          <th className="px-3 py-3.5">
+                            <Tooltip text="4h GE Buy Limit:&#10;Official Grand Exchange purchase limit every 4 hours.&#10;⚠️ Volume Capped: If 24h market volume is lower than GE limit, shows volume caution.">
+                              <span>4h Limit</span>
+                            </Tooltip>
+                          </th>
                           <th className="px-3 py-3.5 cursor-pointer" onClick={() => setSortBy('batch_profit')}>
-                            4h Batch Profit
+                            <Tooltip text="4h Batch Profit:&#10;Realistic profit achievable for a full 4-hour batch (Profit ea * Available limit). Click to sort.">
+                              <span>4h Batch Profit</span>
+                            </Tooltip>
                           </th>
-                          <th className="px-3 py-3.5">Max Afford</th>
-                          <th className="px-3 py-3.5 cursor-pointer" onClick={() => setSortBy('volume')}>24h Volume</th>
-                          <th className="px-3 py-3.5 text-center">Timer</th>
+                          <th className="px-3 py-3.5">
+                            <Tooltip text="Max Afford:&#10;Maximum quantity your current cash stack can afford out of remaining available limit.">
+                              <span>Max Afford</span>
+                            </Tooltip>
+                          </th>
+                          <th className="px-3 py-3.5 cursor-pointer" onClick={() => setSortBy('volume')}>
+                            <Tooltip text="24h Volume:&#10;Total units traded on Grand Exchange over the last 24 hours. Click to sort.">
+                              <span>24h Volume</span>
+                            </Tooltip>
+                          </th>
+                          <th className="px-3 py-3.5 text-center">
+                            <Tooltip text="4h Timer:&#10;Click to start or view the 4-hour cooldown timer for this item.">
+                              <span>Timer</span>
+                            </Tooltip>
+                          </th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#1e2433]">
@@ -1062,14 +1317,20 @@ export default function Dashboard() {
                                     <ShoppingCart className="w-4 h-4" />
                                   </button>
                                 </td>
-                                <td className="px-4 py-3 font-medium text-white flex items-center gap-2">
-                                  <img
-                                    src={`https://static.runelite.net/cache/item/icon/${item.id}.png`}
-                                    alt=""
-                                    className="w-6 h-6 object-contain shrink-0"
-                                    onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                                  />
-                                  <span className="text-white hover:text-amber-400 transition-colors">{item.name}</span>
+                                <td className="px-4 py-3 font-medium text-white">
+                                  <RowHoverCard item={item} effectiveNatPrice={effectiveNatPrice}>
+                                    <div className="flex items-center gap-2 cursor-pointer">
+                                      <img
+                                        src={`https://static.runelite.net/cache/item/icon/${item.id}.png`}
+                                        alt=""
+                                        className="w-6 h-6 object-contain shrink-0"
+                                        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                                      />
+                                      <span className="text-white hover:text-amber-400 transition-colors font-semibold">
+                                        {item.name}
+                                      </span>
+                                    </div>
+                                  </RowHoverCard>
                                 </td>
                                 <td className="px-3 py-3 font-mono text-neutral-300">
                                   <button onClick={() => handleCopyPrice(item.id, item.bid || item.buy_price)} title="Click to copy bid price" className="flex items-center gap-1 hover:text-white">
@@ -1088,7 +1349,15 @@ export default function Dashboard() {
                                 <td className={`px-3 py-3 font-semibold text-xs ${item.speed.color}`}>
                                   {item.speed.label}
                                 </td>
-                                <td className="px-3 py-3 font-mono text-neutral-300">{item.buy_limit > 0 ? item.buy_limit.toLocaleString() : '—'}</td>
+                                <td className="px-3 py-3 font-mono text-neutral-300">
+                                  {item.volume < item.buy_limit && item.volume > 0 ? (
+                                    <Tooltip text={`Volume Capped: 24h volume (${item.volume.toLocaleString()}) < 4h limit (${item.buy_limit.toLocaleString()})`}>
+                                      <span className="text-amber-400 font-semibold cursor-help">{item.buy_limit.toLocaleString()} ⚠️</span>
+                                    </Tooltip>
+                                  ) : (
+                                    item.buy_limit > 0 ? item.buy_limit.toLocaleString() : '—'
+                                  )}
+                                </td>
                                 <td className={`px-3 py-3 font-mono font-bold ${item.batch_profit > 0 ? 'text-emerald-400' : 'text-neutral-500'}`}>
                                   {item.batch_profit > 0 ? `+${item.batch_profit.toLocaleString()}` : `${item.batch_profit.toLocaleString()}`}
                                 </td>
@@ -1117,6 +1386,29 @@ export default function Dashboard() {
             {/* Sub-view: Overnight Planner */}
             {alchSubView === 'overnight' && (
               <div className="space-y-6">
+                {/* Overnight Strategy Callout & Multi-Day Dip Analysis Banner (Desktop parity) */}
+                <div className="bg-[#14171f] p-4 rounded-xl border border-[#242b3b] shadow-lg space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#202636] pb-3">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <span className="text-amber-400 font-extrabold text-sm flex items-center gap-1.5">
+                        <Moon className="w-4 h-4 text-indigo-400" />
+                        🌙 GE Overnight Optimizer
+                      </span>
+                      <span className="text-neutral-500">|</span>
+                      <span className="text-xs font-bold text-emerald-400">
+                        💤 48h &amp; 7d Multi-Day Dip Analysis
+                      </span>
+                      <span className="text-neutral-500">|</span>
+                      <span className="text-xs font-mono font-bold text-cyan-400">
+                        ⏰ Limit Multiplier: {overnightDuration >= 10 ? '3.0x (10-12h = 3 GE Resets)' : '2.0x (6-8h = 2 GE Resets)'}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="text-xs text-neutral-300 italic bg-[#1a1f2b] p-3 rounded-lg border border-[#2b3548] leading-relaxed">
+                    💡 <strong>Sleep Strategy:</strong> Between 03:00 and 08:00 UTC, global player activity drops by ~50%. Placing patient percentile bids lets you catch massive undercut dumps while 4-hour buy limits reset multiple times while you sleep!
+                  </div>
+                </div>
+
                 <div className="bg-[#14171f] p-6 rounded-2xl border border-[#242b3b] space-y-4">
                   <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                     <div>
@@ -1205,14 +1497,35 @@ export default function Dashboard() {
             {/* Sub-view: W308 Anvil Sheet */}
             {alchSubView === 'w308' && (
               <div className="space-y-6">
+                {/* W308 Location & Clan Guest Banner (Desktop parity) */}
+                <div className="bg-[#14171f] p-4 rounded-xl border border-[#242b3b] shadow-lg flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <span className="text-amber-400 font-extrabold text-sm flex items-center gap-1.5">
+                      <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+                      🤝 World 308 &apos;Varrock West&apos; Bulk Trading Hub
+                    </span>
+                    <span className="text-neutral-500">|</span>
+                    <span className="text-xs text-neutral-300 font-semibold">
+                      📍 Location: <strong>Varrock West Bank (World 308)</strong>
+                    </span>
+                    <span className="text-neutral-500">|</span>
+                    <span className="text-xs text-amber-300 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                      Clan Guest: <strong>&apos;Varrock Mob&apos;</strong>
+                    </span>
+                  </div>
+                  <div className="text-xs text-neutral-400">
+                    Bypass the 4-hour 70-unit GE buy limit and save 1% GE tax by trading bulk noted items directly!
+                  </div>
+                </div>
+
                 <div className="bg-[#14171f] p-6 rounded-2xl border border-[#242b3b] space-y-4">
                   <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                     <div>
                       <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                        <FileSpreadsheet className="w-5 h-5 text-emerald-400" /> World 308 Varrock West Bank Trading Desk
+                        <FileSpreadsheet className="w-5 h-5 text-emerald-400" /> Bulk Margin Sheet &amp; Trade Validator
                       </h3>
                       <p className="text-xs text-neutral-400 mt-1">
-                        Bypass the 4-hour 70-unit GE buy limit and save 1% GE tax by trading bulk noted items directly with smiths and crafters!
+                        Auto-scaled to your money stack so you never have to guess quantities or totals on the 2nd trade screen.
                       </p>
                     </div>
 
@@ -1221,15 +1534,23 @@ export default function Dashboard() {
                         onClick={() => setW308Role('buyer')}
                         className={`px-3 py-1 rounded font-bold transition-all ${w308Role === 'buyer' ? 'bg-amber-500 text-black' : 'text-neutral-400 hover:text-white'}`}
                       >
-                        Buyer (High Alcher)
+                        🛒 Alcher / Buyer Mode
                       </button>
                       <button
                         onClick={() => setW308Role('seller')}
                         className={`px-3 py-1 rounded font-bold transition-all ${w308Role === 'seller' ? 'bg-amber-500 text-black' : 'text-neutral-400 hover:text-white'}`}
                       >
-                        Seller (Crafter / Smither)
+                        🔨 Smither / Crafter Mode
                       </button>
                     </div>
+                  </div>
+
+                  {/* Anti-Scam 2nd Screen Verification Warning */}
+                  <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-xs text-amber-200 flex items-center justify-between">
+                    <span className="flex items-center gap-2">
+                      <Shield className="w-4 h-4 text-amber-400 shrink-0" />
+                      <strong>🛡️ Anti-Scam 2nd Screen Verification:</strong> Always verify the other player placed the EXACT coin count and that you are receiving the EXACT noted items before hitting Accept. Watch for flashing exclamation marks!
+                    </span>
                   </div>
 
                   {/* Anti-Scam 2nd Screen Box */}
@@ -1709,43 +2030,105 @@ export default function Dashboard() {
         {/* ========================================================= */}
         {activeTab === 'bond_hub' && (
           <div className="space-y-8 max-w-4xl mx-auto">
-            {/* Big Progress Card */}
-            <div className="bg-[#14171f] p-8 rounded-2xl border border-[#242b3b] shadow-2xl relative overflow-hidden">
-              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+            {/* Big Progress Card: Two-Stage Freedom Progress Bar */}
+            <div className="bg-[#14171f] p-8 rounded-2xl border border-[#242b3b] shadow-2xl relative overflow-hidden space-y-6">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
-                  <span className="text-xs font-bold text-amber-400 tracking-wider uppercase">Active Goal</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-amber-400 tracking-wider uppercase">Freedom Engine</span>
+                    <span className="text-[10px] bg-emerald-500/10 text-emerald-400 font-bold px-2 py-0.5 rounded border border-emerald-500/20">
+                      ⚡ Live OSRS Wiki Ticker
+                    </span>
+                  </div>
                   <h2 className="text-3xl font-extrabold text-white mt-1">Old School Bond Roadmap</h2>
-                  <p className="text-sm text-neutral-400">Interactive wealth tracker towards 14 Days of Membership</p>
+                  <p className="text-sm text-neutral-400">Two-Stage Transition: [Stage 1: Bond Ticket ➔ Stage 2: P2P Operating Cushion]</p>
                 </div>
                 <div className="text-left md:text-right">
                   <span className="text-xs text-neutral-400">Current Live Bond Price</span>
                   <div className="text-2xl font-black text-emerald-400 font-mono">
                     {bondPrice.toLocaleString()} gp
                   </div>
-                  <span className="text-[11px] text-amber-400 block mt-0.5">🌙 Overnight Patient Dip: ~{(bondBid / 1000000).toFixed(2)}M gp (-{(bondSavings / 1000).toFixed(0)}k)</span>
+                  <span className="text-[11px] text-amber-400 block mt-0.5">🌙 Overnight Patient Dip: ~{(bondBid / 1000000).toFixed(2)}M gp (-{(bondSavings / 1000).toFixed(0)}k savings)</span>
                 </div>
               </div>
 
-              {/* Progress Bar */}
-              <div className="space-y-2 mb-6">
-                <div className="flex justify-between text-sm font-semibold">
-                  <span className="text-neutral-300">Total Liquid Wealth: {totalNetWorth.toLocaleString()} gp</span>
-                  <span className="text-amber-400 font-bold">{bondProgressPct.toFixed(1)}%</span>
-                </div>
-                <div className="w-full h-4 bg-[#1e2433] rounded-full overflow-hidden p-0.5 border border-[#2b3547]">
-                  <div
-                    className="h-full bg-gradient-to-r from-amber-500 to-emerald-400 rounded-full transition-all duration-500"
-                    style={{ width: `${bondProgressPct}%` }}
-                  ></div>
-                </div>
+              {/* Strategy Tip Box */}
+              <div className="bg-[#191e29] border border-[#262e3d] rounded-xl p-3 text-xs text-neutral-300 italic">
+                💡 <strong>Overnight Dip Sniping:</strong> Never insta-buy a bond during daytime peak hours. Bidding at the overnight valley (01:00–06:00 UTC) saves ~300k–550k gp compared to insta-buying!
               </div>
+
+              {/* Two-Stage Progress Bar Canvas Simulation */}
+              {(() => {
+                const cushionVal = 8000000; // 8M Recommended Balanced Cushion
+                const totalGoal = bondPrice + cushionVal;
+                const stage1Pct = Math.min(100, Math.max(0, (totalNetWorth / bondPrice) * 100));
+                const stage2Wealth = Math.max(0, totalNetWorth - bondPrice);
+                const stage2Pct = Math.min(100, Math.max(0, (stage2Wealth / cushionVal) * 100));
+                const isStage1Complete = totalNetWorth >= bondPrice;
+                const isFreedomAchieved = totalNetWorth >= totalGoal;
+
+                return (
+                  <div className="space-y-3">
+                    <div className="flex justify-between text-xs font-semibold">
+                      <span className="text-neutral-300">
+                        Total Liquid Wealth: <strong className="text-white font-mono">{totalNetWorth.toLocaleString()} gp</strong>
+                      </span>
+                      <span className="text-amber-400 font-mono font-bold">
+                        Stage 1: {stage1Pct.toFixed(1)}% | Stage 2 (8M Cushion): {stage2Pct.toFixed(1)}%
+                      </span>
+                    </div>
+
+                    {/* Dual Stage Bar */}
+                    <div className="w-full h-8 bg-[#1e2433] rounded-xl overflow-hidden p-1 border border-[#2b3547] flex gap-1">
+                      {/* Stage 1 segment (Bond) */}
+                      <div className="h-full bg-emerald-500/20 rounded-lg relative overflow-hidden flex-1">
+                        <div
+                          className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-500"
+                          style={{ width: `${stage1Pct}%` }}
+                        ></div>
+                        <span className="absolute inset-0 flex items-center justify-center text-[11px] font-bold text-white drop-shadow">
+                          🎟️ Stage 1: Bond ({(bondPrice / 1000000).toFixed(2)}M)
+                        </span>
+                      </div>
+
+                      {/* Stage 2 segment (Operating Cushion) */}
+                      <div className="h-full bg-amber-500/20 rounded-lg relative overflow-hidden flex-1">
+                        <div
+                          className={`h-full transition-all duration-500 ${isFreedomAchieved ? 'bg-cyan-400' : 'bg-gradient-to-r from-amber-500 to-yellow-400'}`}
+                          style={{ width: `${stage2Pct}%` }}
+                        ></div>
+                        <span className="absolute inset-0 flex items-center justify-center text-[11px] font-bold text-white drop-shadow">
+                          🛡️ Stage 2: Cushion (8.00M)
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Stage Status Banner */}
+                    <div className={`p-2.5 rounded-lg text-xs font-bold text-center border ${
+                      isFreedomAchieved
+                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                        : isStage1Complete
+                        ? 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+                        : 'bg-blue-500/10 border-blue-500/30 text-blue-300'
+                    }`}>
+                      {isFreedomAchieved ? (
+                        <span>🎉 FREEDOM ACHIEVED! You have {totalNetWorth.toLocaleString()} gp (Bond + Full 8M Cushion). You will enter Members with full buying power!</span>
+                      ) : isStage1Complete ? (
+                        <span>⚠️ Stage 2: Bond Cost Secured! Building Operating Cushion — Need {(totalGoal - totalNetWorth).toLocaleString()} gp more before redeeming so you don&apos;t enter Members broke!</span>
+                      ) : (
+                        <span>🔒 Stage 1: Accumulating First Bond — Need {(bondPrice - totalNetWorth).toLocaleString()} gp more to reach Bond purchase threshold.</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Stats Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div className="bg-[#191e29] p-4 rounded-xl border border-[#242c3d]">
                   <span className="text-xs text-neutral-400">Remaining GP to Bond</span>
                   <div className="text-lg font-bold text-white font-mono mt-1">
-                    {remainingGp > 0 ? `${remainingGp.toLocaleString()} gp` : 'GOAL ACHIEVED! 🎉'}
+                    {remainingGp > 0 ? `${remainingGp.toLocaleString()} gp` : 'BOND READY! 🎉'}
                   </div>
                 </div>
                 <div className="bg-[#191e29] p-4 rounded-xl border border-[#242c3d]">
@@ -1758,7 +2141,21 @@ export default function Dashboard() {
                   <span className="text-xs text-neutral-400">Average Earning Rate</span>
                   <div className="text-lg font-bold text-emerald-400 font-mono mt-1">+650k gp/hr</div>
                 </div>
+                <div className="bg-[#191e29] p-4 rounded-xl border border-[#242c3d]">
+                  <span className="text-xs text-neutral-400">Operating Cushion Target</span>
+                  <div className="text-lg font-bold text-cyan-400 font-mono mt-1">8,000,000 gp</div>
+                </div>
               </div>
+            </div>
+
+            {/* Pro-Tip Callout: World 308 Anvil GE Limit Bypass Secret */}
+            <div className="bg-[#1a252f] p-4 rounded-xl border border-[#2c3e50] space-y-1.5 text-xs text-neutral-200">
+              <span className="text-blue-400 font-bold block text-sm">
+                ⚡ F2P Speed Secret — How to Alch 12h/Day Without Hitting GE Limits:
+              </span>
+              <p className="leading-relaxed">
+                In F2P, the GE limits you to 70 rune items every 4 hours. To alch continuously without waiting for GE limits, visit World 308 at Varrock West Bank (Join as Clan Guest: &apos;Varrock Mob&apos; or trade in Public Chat). High-level smithers sell thousands of noted Rune 2h swords and battleaxes directly in unlimited bulk for GE mid/low! Zero buy limits!
+              </p>
             </div>
 
             {/* Interactive User Wealth Inputs */}
@@ -1807,32 +2204,62 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* 14-Day Perpetual Membership Sustainer Simulator */}
+            {/* 14-Day Perpetual Membership Sustainer Simulator (Table matching desktop gui.py tree_bond_sustainer) */}
             <div className="bg-[#14171f] p-6 rounded-2xl border border-[#242b3b] space-y-4">
-              <h3 className="font-bold text-white text-lg flex items-center gap-2">
-                <Ticket className="w-5 h-5 text-amber-400" /> 14-Day Perpetual Membership Sustainer Simulator
-              </h3>
-              <p className="text-xs text-neutral-400">
-                How to easily sustain your Bond forever without burning out:
-              </p>
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
+                <div>
+                  <h3 className="font-bold text-white text-lg flex items-center gap-2">
+                    <Ticket className="w-5 h-5 text-amber-400" /> ♾️ 14-Day Perpetual Membership Sustainer Simulator
+                  </h3>
+                  <p className="text-xs text-neutral-400">
+                    [Shows why your FIRST bond is the only hard one — subsequent bonds are 100% self-funding!]
+                  </p>
+                </div>
+              </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono">
-                <div className="bg-[#191e29] p-4 rounded-xl border border-[#242c3d] space-y-2">
-                  <span className="text-amber-400 font-bold block">Method 1: Passive Daily Habits</span>
-                  <p className="text-neutral-300">
-                    • 3 Herb Runs/day = ~600k gp/day<br/>
-                    • Zaff Battlestaves = ~26k gp/day<br/>
-                    • 14 Days = <strong>8.76M gp</strong> (75% of your bond passively in 15 mins/day!)
-                  </p>
-                </div>
-                <div className="bg-[#191e29] p-4 rounded-xl border border-[#242c3d] space-y-2">
-                  <span className="text-emerald-400 font-bold block">Method 2: Active High Alchemy</span>
-                  <p className="text-neutral-300">
-                    • 650k gp/hr on Dragon Daggers / Black D'hides<br/>
-                    • Total time needed over 14 days: <strong>~18.5 hours total</strong><br/>
-                    • That is only <strong>1.3 hours per day</strong> to stay bonded forever!
-                  </p>
-                </div>
+              {/* Sustainer Table */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs font-mono">
+                  <thead className="bg-[#1a1f2b] text-neutral-400 uppercase text-[11px] border-b border-[#262e3f]">
+                    <tr>
+                      <th className="px-3 py-2.5">Daily Alch Time</th>
+                      <th className="px-3 py-2.5 text-center">14-Day Hours</th>
+                      <th className="px-3 py-2.5 text-right">Gross P2P Revenue</th>
+                      <th className="px-3 py-2.5 text-center">Next Bond Paid?</th>
+                      <th className="px-3 py-2.5 text-right text-emerald-400">14-Day Bank Surplus</th>
+                      <th className="px-4 py-2.5">Player Gear &amp; Wealth Milestone</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#1e2433]">
+                    {[
+                      { daily: "35 - 45 mins / day", hrs: "9.2 hrs", gross: "11,040,000 gp", paid: "✅ 100% Fully Paid", surplus: "+40,000 gp", milestone: "🪙 Infinite Membership (Zero real cash ever again)", color: "text-blue-400" },
+                      { daily: "2 Hours / day", hrs: "28.0 hrs", gross: "33,600,000 gp", paid: "✅ 100% Fully Paid", surplus: "+22,600,000 gp", milestone: "⚔️ Mid-Tier Gear (Abyssal whip, Fury, Dragon boots)", color: "text-emerald-400" },
+                      { daily: "4 Hours / day", hrs: "56.0 hrs", gross: "67,200,000 gp", paid: "✅ 100% Fully Paid", surplus: "+56,200,000 gp", milestone: "🛡️ High-Tier Gear (Bandos tassets, Ahrim's, Blowpipe)", color: "text-emerald-400 font-bold" },
+                      { daily: "6 Hours / day", hrs: "84.0 hrs", gross: "100,800,000 gp", paid: "✅ 100% Fully Paid", surplus: "+89,800,000 gp", milestone: "💎 100M+ Bank (Full Zenyte jewelry, Osmumten's fang)", color: "text-emerald-400 font-bold" },
+                      { daily: "8 Hours / day", hrs: "112.0 hrs", gross: "134,400,000 gp", paid: "✅ 100% Fully Paid", surplus: "+123,400,000 gp", milestone: "🏹 Bossing Ready (Bow of Faerdhinen, Crystal armour)", color: "text-amber-400 font-bold" },
+                      { daily: "12 Hours / day", hrs: "168.0 hrs", gross: "201,600,000 gp", paid: "✅ 100% Fully Paid", surplus: "+190,600,000 gp", milestone: "👑 Economy Master (+190M liquid surplus every 14 days!)", color: "text-cyan-400 font-bold" },
+                    ].map((row, rIdx) => (
+                      <tr key={rIdx} className="hover:bg-[#1a202c]/50">
+                        <td className="px-3 py-2.5 font-bold text-white font-sans">{row.daily}</td>
+                        <td className="px-3 py-2.5 text-center text-neutral-300">{row.hrs}</td>
+                        <td className="px-3 py-2.5 text-right text-neutral-300">{row.gross}</td>
+                        <td className="px-3 py-2.5 text-center text-emerald-400 font-bold">{row.paid}</td>
+                        <td className="px-3 py-2.5 text-right font-extrabold text-emerald-400">{row.surplus}</td>
+                        <td className={`px-4 py-2.5 font-sans ${row.color}`}>{row.milestone}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Bottom Freedom Takeaway Box */}
+              <div className="bg-[#1b4332] p-4 rounded-xl border border-[#2d6a4f] space-y-1 text-xs text-[#d8f3dc]">
+                <strong className="text-emerald-300 font-bold block text-sm">
+                  🏆 The Infinite Membership Guarantee:
+                </strong>
+                <p className="leading-relaxed">
+                  Once you cross into Members with your 8M cushion, you only need ~35 to 45 minutes of alching per day to fund perpetual membership forever. At 12 hours a day, you pay off the next bond in under 1 single day, leaving 13 days of pure compounding profit to build an endgame 100M+ bank!
+                </p>
               </div>
             </div>
           </div>
