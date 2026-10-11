@@ -247,6 +247,38 @@ function getMarketTimingInfo() {
   }
 }
 
+// Desktop gui.py parse_cash_input verbatim: supports 900k, 1.5m, 2b, etc.
+function parseCashInput(text: string | number): number {
+  if (typeof text === 'number') return isNaN(text) ? 0 : text;
+  let str = String(text).trim().toUpperCase().replace(/,/g, '').replace(/\s+/g, '').replace(/GP/g, '');
+  if (!str) return 0;
+  let multiplier = 1;
+  if (str.endsWith('K')) {
+    multiplier = 1000;
+    str = str.slice(0, -1);
+  } else if (str.endsWith('M')) {
+    multiplier = 1000000;
+    str = str.slice(0, -1);
+  } else if (str.endsWith('B')) {
+    multiplier = 1000000000;
+    str = str.slice(0, -1);
+  }
+  const val = parseFloat(str);
+  return isNaN(val) ? 0 : Math.round(val * multiplier);
+}
+
+// Desktop gui.py format_gp verbatim
+function formatGp(val: number | null | undefined): string {
+  if (val === null || val === undefined || isNaN(val)) return '0 gp';
+  const abs = Math.abs(val);
+  if (abs >= 1000000) {
+    return `${(val / 1000000).toFixed(2)}M gp`;
+  } else if (abs >= 1000) {
+    return `${val.toLocaleString()} gp`;
+  }
+  return `${val} gp`;
+}
+
 export default function Dashboard() {
   // 5 Main Super-Hubs
   const [activeTab, setActiveTab] = useState<'alch_hub' | 'craft_hub' | 'bond_hub' | 'timers_hub' | 'session_hub'>('alch_hub');
@@ -277,6 +309,18 @@ export default function Dashboard() {
   // When f2pOnly=true -> F2P Only mode (shows ONLY F2P items)
   const [membersEnabled, setMembersEnabled] = useState<boolean>(true);
   const [f2pOnly, setF2pOnly] = useState<boolean>(false);
+
+  // Advanced Filters Drawer (Matching desktop gui.py build_top_controls drawer)
+  const [showFilterDrawer, setShowFilterDrawer] = useState(false);
+  const [unlimitedBudget, setUnlimitedBudget] = useState(false);
+  const [cashInputRaw, setCashInputRaw] = useState<string>('5.00M');
+  const [minProfitFilter, setMinProfitFilter] = useState<number>(0);
+  const [speedFilter, setSpeedFilter] = useState<'All' | 'Fast' | 'Steady'>('All');
+  const [hideMaxedCooldown, setHideMaxedCooldown] = useState(false);
+  const [ownedNats, setOwnedNats] = useState<number>(0);
+  const [lockedNatPrice, setLockedNatPrice] = useState<number | null>(null);
+  const [nextRefreshSec, setNextRefreshSec] = useState<number>(60);
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
 
   // High Alch Search & Sort
   const [searchQuery, setSearchQuery] = useState('');
@@ -420,16 +464,24 @@ export default function Dashboard() {
     localStorage.setItem('alchmate_cart', JSON.stringify(updated));
   };
 
-  // Fetch live prices on load
+  // Floating Toast helper matching desktop FloatingToast
+  const showToast = (msg: string) => {
+    setToastMsg(msg);
+    setTimeout(() => setToastMsg(null), 3000);
+  };
+
+  // Fetch live prices on load and countdown timer
   useEffect(() => {
     async function fetchPrices() {
       try {
+        setLoading(true);
         const res = await fetch('/api/prices');
         const data = await res.json();
         setPriceData(data);
-        if (data.nature_rune) {
+        if (data.nature_rune && !lockedNatPrice) {
           setNatureRuneOverride(data.nature_rune);
         }
+        setNextRefreshSec(60);
       } catch (err) {
         console.error('Failed to load prices', err);
       } finally {
@@ -437,9 +489,19 @@ export default function Dashboard() {
       }
     }
     fetchPrices();
-    const interval = setInterval(fetchPrices, 60000);
-    return () => clearInterval(interval);
-  }, []);
+
+    const secTimer = setInterval(() => {
+      setNextRefreshSec(prev => {
+        if (prev <= 1) {
+          fetchPrices();
+          return 60;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(secTimer);
+  }, [lockedNatPrice]);
 
   // Helper matching desktop matches_alch_type_filter
   const matchesAlchType = (itemName: string): boolean => {
@@ -529,13 +591,26 @@ export default function Dashboard() {
         // 2. Volume filter
         if (minVolumeFilter > 0 && item.volume < minVolumeFilter && !searchQuery) return false;
 
-        // 3. Max Spend filter
-        if (maxSpend > 0 && item.buy_price > maxSpend) return false;
+        // 3. Max Spend filter (skipped if unlimitedBudget is checked)
+        if (!unlimitedBudget && maxSpend > 0 && item.buy_price > maxSpend) return false;
 
-        // 4. Item Type category filter
+        // 4. Min Profit filter
+        if (minProfitFilter > 0 && item.profit < minProfitFilter) return false;
+
+        // 5. Fill Speed filter
+        if (speedFilter === 'Fast' && !item.speed.label.includes('Fast')) return false;
+        if (speedFilter === 'Steady' && !item.speed.label.includes('Steady') && !item.speed.label.includes('Fast')) return false;
+
+        // 6. Hide Maxed Cooldown (hides if active 4h timer exists)
+        if (hideMaxedCooldown) {
+          const hasActiveTimer = timers.some(t => t.id === item.id && t.expiresAt > Date.now());
+          if (hasActiveTimer) return false;
+        }
+
+        // 7. Item Type category filter
         if (!matchesAlchType(item.name)) return false;
 
-        // 5. Search query
+        // 8. Search query
         if (searchQuery) {
           return item.name.toLowerCase().includes(searchQuery.toLowerCase());
         }
@@ -545,7 +620,7 @@ export default function Dashboard() {
         const factor = sortAsc ? 1 : -1;
         return (a[sortBy] - b[sortBy]) * factor;
       });
-  }, [priceData, searchQuery, membersEnabled, f2pOnly, minVolumeFilter, maxSpend, typeFilters, effectiveNatPrice, pricingStrategy, cashStack, sortBy, sortAsc]);
+  }, [priceData, searchQuery, membersEnabled, f2pOnly, minVolumeFilter, maxSpend, unlimitedBudget, minProfitFilter, speedFilter, hideMaxedCooldown, timers, typeFilters, effectiveNatPrice, pricingStrategy, cashStack, sortBy, sortAsc]);
 
   // Overnight Sleepers (Items with good volume, >70 limit, >300 profit)
   const overnightItems = useMemo(() => {
@@ -936,6 +1011,41 @@ export default function Dashboard() {
               ))}
             </div>
 
+            {/* Refresh Now Button & Live Countdown */}
+            <Tooltip text="Refresh Now (F5) or wait for automatic 60s Wiki sync">
+              <button
+                onClick={async () => {
+                  try {
+                    setLoading(true);
+                    const res = await fetch('/api/prices');
+                    const data = await res.json();
+                    setPriceData(data);
+                    setNextRefreshSec(60);
+                    showToast('Refreshed live Grand Exchange prices!');
+                  } finally {
+                    setLoading(false);
+                  }
+                }}
+                className="bg-[#1a1f2c] hover:bg-[#252c3f] text-neutral-300 px-2.5 py-1.5 rounded-lg border border-[#2a3245] flex items-center gap-1.5 transition-all text-xs font-semibold cursor-pointer"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 text-amber-400 ${loading ? 'animate-spin' : ''}`} />
+                <span>Next: {nextRefreshSec}s</span>
+              </button>
+            </Tooltip>
+
+            {/* Filters Drawer Toggle Button (Desktop gui.py btn_toggle_filters) */}
+            <button
+              onClick={() => setShowFilterDrawer(!showFilterDrawer)}
+              className={`px-3 py-1.5 rounded-lg border text-xs font-bold transition-all flex items-center gap-1.5 ${
+                showFilterDrawer
+                  ? 'bg-amber-500 text-black border-amber-500 shadow-md shadow-amber-500/20'
+                  : 'bg-[#1a1f2c] text-neutral-300 border-[#2a3245] hover:text-white'
+              }`}
+            >
+              <Sliders className="w-3.5 h-3.5" />
+              <span>⚙️ Filters {showFilterDrawer ? '▴' : '▾'}</span>
+            </button>
+
             <button 
               onClick={handleExportCSV}
               className="bg-[#1a1f2c] hover:bg-[#252c3f] text-neutral-300 px-3 py-1.5 rounded-lg border border-[#2a3245] flex items-center gap-1.5 transition-all text-xs"
@@ -943,12 +1053,125 @@ export default function Dashboard() {
               <Download className="w-3.5 h-3.5 text-amber-400" /> Export CSV
             </button>
 
-            <div className="flex items-center gap-1.5 text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-              Wiki Live
-            </div>
+            {/* Cloud Sync Status Badge */}
+            <Tooltip text={syncToken ? `Cloud Sync Token Active: ${syncToken.substring(0, 10)}... (RuneLite plugin linked)` : 'No sync token active. Generate one in Session Hub.'}>
+              <div className="flex items-center gap-1.5 text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20 cursor-help">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span>{syncToken ? 'Cloud Synced' : 'Wiki Live'}</span>
+              </div>
+            </Tooltip>
           </div>
         </div>
+
+        {/* Collapsible Advanced Filters Drawer (Desktop gui.py p2 / build_top_controls) */}
+        {showFilterDrawer && (
+          <div className="max-w-7xl mx-auto px-4 py-3 bg-[#13161e] border-t border-[#1c212b] text-xs">
+            <div className="flex flex-wrap items-center gap-4 text-neutral-300">
+              {/* Cash Stack Input with k/m parser & Unlimited Budget Checkbox */}
+              <div className="flex items-center gap-2 bg-[#1a1f2b] px-3 py-1.5 rounded-lg border border-[#273043]">
+                <Tooltip text="Toggle budget cap on/off. When unchecked, unlimited budget is assumed.">
+                  <label className="flex items-center gap-1.5 font-bold cursor-pointer text-amber-400">
+                    <input
+                      type="checkbox"
+                      checked={!unlimitedBudget}
+                      onChange={(e) => setUnlimitedBudget(!e.target.checked)}
+                      className="accent-amber-500 rounded"
+                    />
+                    Cash:
+                  </label>
+                </Tooltip>
+                <input
+                  type="text"
+                  disabled={unlimitedBudget}
+                  value={unlimitedBudget ? 'Unlimited' : cashInputRaw}
+                  placeholder="5.00M"
+                  onChange={(e) => {
+                    setCashInputRaw(e.target.value);
+                    const parsed = parseCashInput(e.target.value);
+                    if (parsed > 0) handleUpdateCashStack(parsed);
+                  }}
+                  className={`w-20 bg-transparent font-mono font-bold focus:outline-none ${unlimitedBudget ? 'text-neutral-500 line-through' : 'text-white'}`}
+                />
+                <span className="text-neutral-500">gp</span>
+              </div>
+
+              {/* Max Spend Per Item */}
+              <div className="flex items-center gap-2 bg-[#1a1f2b] px-3 py-1.5 rounded-lg border border-[#273043]">
+                <span className="text-neutral-400 font-semibold">Max Spend:</span>
+                <input
+                  type="number"
+                  value={maxSpend}
+                  onChange={(e) => setMaxSpend(Number(e.target.value))}
+                  className="w-16 bg-transparent text-white font-mono font-bold focus:outline-none"
+                />
+                <span className="text-neutral-500">gp</span>
+              </div>
+
+              {/* Min Profit Filter */}
+              <div className="flex items-center gap-2 bg-[#1a1f2b] px-3 py-1.5 rounded-lg border border-[#273043]">
+                <span className="text-neutral-400 font-semibold">Min Profit:</span>
+                <input
+                  type="number"
+                  placeholder="0"
+                  value={minProfitFilter || ''}
+                  onChange={(e) => setMinProfitFilter(Number(e.target.value))}
+                  className="w-14 bg-transparent text-emerald-400 font-mono font-bold focus:outline-none"
+                />
+                <span className="text-neutral-500">gp</span>
+              </div>
+
+              {/* Speed Filter Combobox */}
+              <div className="flex items-center gap-2 bg-[#1a1f2b] px-3 py-1.5 rounded-lg border border-[#273043]">
+                <span className="text-neutral-400 font-semibold">Speed:</span>
+                <select
+                  value={speedFilter}
+                  onChange={(e) => setSpeedFilter(e.target.value as any)}
+                  className="bg-transparent text-amber-400 font-bold focus:outline-none"
+                >
+                  <option value="All" className="bg-[#1a1f2b]">All Speeds</option>
+                  <option value="Fast" className="bg-[#1a1f2b]">⚡ Fast (&lt;15m)</option>
+                  <option value="Steady" className="bg-[#1a1f2b]">⏱️ Steady (&lt;1h)</option>
+                </select>
+              </div>
+
+              {/* Hide Maxed 4h Cooldown Checkbox */}
+              <label className="flex items-center gap-1.5 bg-[#1a1f2b] px-3 py-1.5 rounded-lg border border-[#273043] cursor-pointer text-neutral-300 font-semibold">
+                <input
+                  type="checkbox"
+                  checked={hideMaxedCooldown}
+                  onChange={(e) => setHideMaxedCooldown(e.target.checked)}
+                  className="accent-amber-500 rounded"
+                />
+                <span>⏳ Hide Maxed 4h Limit</span>
+              </label>
+
+              {/* Nature Rune Sub-Controls: Lock price & Owned Stockpile */}
+              <div className="flex items-center gap-2 bg-[#1a1f2b] px-3 py-1.5 rounded-lg border border-[#273043]">
+                <span className="text-neutral-400">Nat Lock:</span>
+                <input
+                  type="number"
+                  placeholder="Market"
+                  value={lockedNatPrice || ''}
+                  onChange={(e) => {
+                    const v = Number(e.target.value);
+                    setLockedNatPrice(v > 0 ? v : null);
+                    if (v > 0) setNatureRuneOverride(v);
+                  }}
+                  className="w-14 bg-transparent text-amber-400 font-mono font-bold focus:outline-none"
+                />
+                <span className="text-neutral-500">|</span>
+                <span className="text-neutral-400">Owned Nats:</span>
+                <input
+                  type="number"
+                  placeholder="0"
+                  value={ownedNats || ''}
+                  onChange={(e) => setOwnedNats(Number(e.target.value))}
+                  className="w-16 bg-transparent text-emerald-400 font-mono font-bold focus:outline-none"
+                />
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* 5 Main Consolidated Super-Hub Tabs */}
         <div className="max-w-7xl mx-auto px-4 flex space-x-1 border-t border-[#1c212b] overflow-x-auto">
@@ -1037,50 +1260,114 @@ export default function Dashboard() {
               ))}
             </div>
 
-            {/* 8-Slot Cart Status Bar (Matching desktop sub-bar) */}
-            <div className="bg-[#14171f] p-3 rounded-xl border border-[#242b3b] flex flex-wrap items-center justify-between text-xs gap-3">
-              <div className="flex items-center gap-3">
-                <span className="font-bold text-white flex items-center gap-1.5">
-                  <ShoppingCart className="w-4 h-4 text-amber-400" /> GE Slots: {cartItems.length}/8
-                </span>
-                <span className="text-neutral-400">|</span>
-                <span className="text-neutral-300">
-                  Allocated: <strong className="text-white font-mono">{(cartAllocated / 1000000).toFixed(2)}M gp</strong>
-                </span>
-                <span className="text-neutral-400">|</span>
-                <span className="text-neutral-300">
-                  Cash Left: <strong className="text-emerald-400 font-mono">{(cartCashLeft / 1000000).toFixed(2)}M gp</strong>
-                </span>
-                <span className="text-neutral-400">|</span>
-                <span className="text-neutral-300">
-                  Est. Profit: <strong className="text-amber-400 font-mono">+{cartExpectedProfit.toLocaleString()} gp</strong>
-                </span>
-              </div>
+            {/* 8-Slot Cart Status Bar (Full Desktop Parity) */}
+            {(() => {
+              const totalItemsInCart = cartItems.reduce((acc, c) => acc + c.limit, 0);
+              const castingTimeMinutes = Math.round((totalItemsInCart / 1200) * 60);
+              const natsShort = Math.max(0, totalItemsInCart - ownedNats);
 
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => {
-                    const names = cartItems.map(c => c.name).join(',');
-                    navigator.clipboard.writeText(`alchmate,${names}`);
-                    alert('Cart bank tag copied to clipboard!');
-                  }}
-                  disabled={cartItems.length === 0}
-                  className="bg-[#1a202c] hover:bg-[#242d3d] disabled:opacity-40 text-neutral-300 px-3 py-1 rounded-lg border border-[#2e374d] text-xs font-semibold"
-                >
-                  📋 Copy Cart Tag
-                </button>
-                <button
-                  onClick={() => {
-                    setCartItems([]);
-                    localStorage.removeItem('alchmate_cart');
-                  }}
-                  disabled={cartItems.length === 0}
-                  className="text-neutral-500 hover:text-rose-400 disabled:opacity-40 px-2 py-1 text-xs"
-                >
-                  Clear
-                </button>
-              </div>
-            </div>
+              return (
+                <div className="bg-[#14171f] p-3 rounded-xl border border-[#242b3b] flex flex-wrap items-center justify-between text-xs gap-3">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <span className="font-bold text-white flex items-center gap-1.5">
+                      <ShoppingCart className="w-4 h-4 text-amber-400" /> GE Slots: {cartItems.length}/8
+                    </span>
+                    <span className="text-neutral-500">|</span>
+                    <span className="text-neutral-300">
+                      Allocated: <strong className="text-white font-mono">{(cartAllocated / 1000000).toFixed(2)}M gp</strong>
+                    </span>
+                    <span className="text-neutral-500">|</span>
+                    <span className="text-neutral-300">
+                      Cash Left: <strong className="text-emerald-400 font-mono">{unlimitedBudget ? '∞ gp' : `${(cartCashLeft / 1000000).toFixed(2)}M gp`}</strong>
+                    </span>
+                    <span className="text-neutral-500">|</span>
+                    <span className="text-neutral-300">
+                      Est. Profit: <strong className="text-amber-400 font-mono">+{cartExpectedProfit.toLocaleString()} gp</strong>
+                    </span>
+                    <span className="text-neutral-500">|</span>
+                    <span className="text-neutral-400 font-mono">
+                      ⏱️ {castingTimeMinutes}m cast time ({totalItemsInCart.toLocaleString()} casts)
+                    </span>
+                    {ownedNats > 0 && natsShort > 0 && (
+                      <span className="text-amber-400 font-bold bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                        ⚠️ Short {natsShort.toLocaleString()} nats
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {/* Master Tag (All profitable items) */}
+                    <Tooltip text="Export top 50 profitable high alch items as a RuneLite bank tag tab">
+                      <button
+                        onClick={() => {
+                          const topItems = filteredAlchItems.filter(it => it.profit > 50).slice(0, 50).map(it => it.name).join(',');
+                          navigator.clipboard.writeText(`alchmate,${topItems}`);
+                          showToast('Master Bank Tag (top 50 items) copied!');
+                        }}
+                        className="bg-purple-600/30 hover:bg-purple-600/50 text-purple-200 border border-purple-500/40 px-2.5 py-1 rounded-lg text-xs font-bold transition-all"
+                      >
+                        📋 Master Tag
+                      </button>
+                    </Tooltip>
+
+                    {/* Cart Tag */}
+                    <Tooltip text="Export only the 8 items currently in your cart as a RuneLite bank tag">
+                      <button
+                        onClick={() => {
+                          const names = cartItems.map(c => c.name).join(',');
+                          navigator.clipboard.writeText(`alchmate,${names}`);
+                          showToast('Cart Bank Tag copied!');
+                        }}
+                        disabled={cartItems.length === 0}
+                        className="bg-blue-600/30 hover:bg-blue-600/50 disabled:opacity-40 text-blue-200 border border-blue-500/40 px-2.5 py-1 rounded-lg text-xs font-bold transition-all"
+                      >
+                        🛒 Cart Tag
+                      </button>
+                    </Tooltip>
+
+                    {/* Log Cart (Starts 4h timers) */}
+                    <Tooltip text="Start 4-hour Grand Exchange timers for all items in cart">
+                      <button
+                        onClick={() => {
+                          if (cartItems.length === 0) return;
+                          const now = Date.now();
+                          const newTimers = [...timers];
+                          cartItems.forEach(ci => {
+                            const existingIdx = newTimers.findIndex(t => t.id === ci.id);
+                            const tObj = { id: ci.id, name: ci.name, expiresAt: now + (4 * 3600 * 1000), limit: ci.limit };
+                            if (existingIdx >= 0) {
+                              newTimers[existingIdx] = tObj;
+                            } else {
+                              newTimers.push(tObj);
+                            }
+                          });
+                          setTimers(newTimers);
+                          localStorage.setItem('alchmate_timers', JSON.stringify(newTimers));
+                          showToast(`Logged cart! Started 4h timers for ${cartItems.length} items.`);
+                        }}
+                        disabled={cartItems.length === 0}
+                        className="bg-emerald-600/30 hover:bg-emerald-600/50 disabled:opacity-40 text-emerald-200 border border-emerald-500/40 px-2.5 py-1 rounded-lg text-xs font-bold transition-all"
+                      >
+                        ✓ Log Cart
+                      </button>
+                    </Tooltip>
+
+                    {/* Clear Cart */}
+                    <button
+                      onClick={() => {
+                        setCartItems([]);
+                        localStorage.removeItem('alchmate_cart');
+                        showToast('Cart cleared.');
+                      }}
+                      disabled={cartItems.length === 0}
+                      className="text-neutral-500 hover:text-rose-400 disabled:opacity-40 px-2 py-1 text-xs transition-colors"
+                    >
+                      ✕ Clear
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Sub-view: Main Margins Table */}
             {alchSubView === 'table' && (
@@ -2484,6 +2771,36 @@ export default function Dashboard() {
           </div>
         )}
       </main>
+
+      {/* Floating Toast Notification matching desktop FloatingToast */}
+      {toastMsg && (
+        <div className="fixed bottom-12 right-6 z-50 animate-bounce">
+          <div className="bg-[#1f2430] border border-amber-500/50 rounded-xl px-4 py-2.5 shadow-2xl text-xs font-semibold text-white flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-amber-400" />
+            <span>{toastMsg}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Desktop App Status Bar Footer (Desktop gui.py lbl_status_left / lbl_status_right) */}
+      <footer className="bg-[#0f1117] border-t border-[#1c212b] px-4 py-2 text-[11px] text-neutral-400 font-mono flex flex-wrap justify-between items-center gap-2">
+        <div className="flex items-center gap-3">
+          <span className="flex items-center gap-1.5 text-emerald-400 font-semibold">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+            Live Nature Rune: {effectiveNatPrice} gp
+          </span>
+          <span className="text-neutral-600">|</span>
+          <span>Items Monitored: {priceData?.items?.length || 3509}</span>
+          <span className="text-neutral-600">|</span>
+          <span>Pricing Basis: 5m Volume Avg</span>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <span>Active Capital: {unlimitedBudget ? 'Unlimited' : `${(cashStack / 1000000).toFixed(2)}M gp`}</span>
+          <span className="text-neutral-600">|</span>
+          <span className="text-neutral-500">Auto-Sync in {nextRefreshSec}s</span>
+        </div>
+      </footer>
     </div>
   );
 }
