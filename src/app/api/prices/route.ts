@@ -50,7 +50,9 @@ export async function GET() {
       const p = latest[id];
       if (!p) continue;
 
-      const buyPrice = p.low || p.high || 0;
+      const bid = p.low || p.high || 0;
+      const ask = p.high || p.low || 0;
+      const buyPrice = bid > 0 ? bid : ask;
       if (buyPrice <= 0) continue;
 
       const profit = highalch - buyPrice - natPrice;
@@ -65,6 +67,8 @@ export async function GET() {
         buy_limit: item.limit || 0,
         volume: dailyVolume,
         highalch,
+        bid,
+        ask,
         buy_price: buyPrice,
         profit,
         hourly_profit: hourlyProfit,

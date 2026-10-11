@@ -1,0 +1,107 @@
+[
+  {
+    "id": 1079,
+    "name": "Rune platelegs",
+    "limit": 70,
+    "members": false,
+    "verdict": "\ud83d\udc51 All-Time King: Highest alch floor (38.4k), zero price risk, instant liquidity."
+  },
+  {
+    "id": 1093,
+    "name": "Rune plateskirt",
+    "limit": 70,
+    "members": false,
+    "verdict": "\ud83d\udc51 Platelegs Twin: Identical 38.4k alch value, massive supply from smithers."
+  },
+  {
+    "id": 1319,
+    "name": "Rune 2h sword",
+    "limit": 70,
+    "members": false,
+    "verdict": "\u2694\ufe0f Top Volume Weapon: Constant supply from smithing & clue scrolls, fills fast."
+  },
+  {
+    "id": 1201,
+    "name": "Rune kiteshield",
+    "limit": 70,
+    "members": false,
+    "verdict": "\ud83d\udee1\ufe0f High Alch Staple: Very steady 32.6k value, rock-solid profit margins."
+  },
+  {
+    "id": 1113,
+    "name": "Rune chainbody",
+    "limit": 70,
+    "members": false,
+    "verdict": "\ud83d\udee1\ufe0f Solid 30k Floor: Reliable slayer drop supply, high profit spreads."
+  },
+  {
+    "id": 1373,
+    "name": "Rune battleaxe",
+    "limit": 70,
+    "members": false,
+    "verdict": "\ud83e\ude93 Slayer Classic: Consistently traded at 24.9k floor with rapid turnover."
+  },
+  {
+    "id": 1347,
+    "name": "Rune warhammer",
+    "limit": 70,
+    "members": false,
+    "verdict": "\ud83d\udd28 High Turnover: Frequent undercut sellers create wide profit spreads."
+  },
+  {
+    "id": 1185,
+    "name": "Rune sq shield",
+    "limit": 70,
+    "members": false,
+    "verdict": "\ud83d\udee1\ufe0f Steady Earner: Reliable 23k floor with steady patient fills."
+  },
+  {
+    "id": 1123,
+    "name": "Adamant platebody",
+    "limit": 125,
+    "members": false,
+    "verdict": "\ud83d\udce6 High 125 Limit: Low capital (~1M batch), great F2P/P2P staple."
+  },
+  {
+    "id": 1163,
+    "name": "Rune full helm",
+    "limit": 70,
+    "members": false,
+    "verdict": "\ud83e\ude96 Steady Volume: Reliable 21.1k alch value, quick fill cycles."
+  },
+  {
+    "id": 1333,
+    "name": "Rune scimitar",
+    "limit": 70,
+    "members": false,
+    "verdict": "\ud83d\udde1\ufe0f High Liquidity: F2P/P2P staple, fast trading velocity."
+  },
+  {
+    "id": 1213,
+    "name": "Rune dagger",
+    "limit": 70,
+    "members": false,
+    "verdict": "\ud83d\udde1\ufe0f Low Capital: Low buy price (~4.3k), high volume from monster drops."
+  },
+  {
+    "id": 1397,
+    "name": "Air battlestaff",
+    "limit": 18000,
+    "members": true,
+    "verdict": "\u26a1 Massive 18k Limit: Premier crafting & bulk alch item with huge daily turnover."
+  },
+  {
+    "id": 1135,
+    "name": "Green d'hide body",
+    "limit": 125,
+    "members": false,
+    "verdict": "\ud83c\udff9 Bulk Crafting Staple: Low buy price, high 125 limit, safe margins."
+  },
+  {
+    "id": 1215,
+    "name": "Dragon dagger",
+    "limit": 70,
+    "members": true,
+    "verdict": "\ud83d\udde1\ufe0f Slayer Favorite: 18k alch value with deep undercut sell volume."
+  }
+]

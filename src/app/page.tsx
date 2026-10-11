@@ -31,10 +31,13 @@ import {
   Key,
   Send,
   Eye,
-  EyeOff
+  EyeOff,
+  ShoppingCart
 } from 'lucide-react';
 import geRecipesData from '../data/ge_recipes.json';
 import craftingRecipesData from '../data/crafting_recipes.json';
+import workhorseItemsData from '../data/workhorse_items.json';
+import w308StaplesData from '../data/w308_staples.json';
 
 interface AlchItem {
   id: number;
@@ -43,6 +46,8 @@ interface AlchItem {
   buy_limit: number;
   volume: number;
   highalch: number;
+  bid: number;
+  ask: number;
   buy_price: number;
   profit: number;
   hourly_profit: number;
@@ -76,29 +81,49 @@ export default function Dashboard() {
   const [copiedPlan, setCopiedPlan] = useState(false);
   const [copiedAdItem, setCopiedAdItem] = useState<string | null>(null);
 
-  // Global Controls & Filters
-  const [pricingStrategy, setPricingStrategy] = useState<'bid' | 'smart' | 'ask'>('bid');
+  // Global Controls & Defaults (Matching desktop state.py DEFAULT_CONFIG)
+  const [pricingStrategy, setPricingStrategy] = useState<'patient' | 'smart' | 'instant'>('patient');
   const [natureRuneOverride, setNatureRuneOverride] = useState<number>(170);
-  const [explorersRing, setExplorersRing] = useState(false); // Explorer's Ring 4 (0 Nat cost)
+  const [explorersRing, setExplorersRing] = useState(false); // 0 GP Nature Runes
+  const [cashStack, setCashStack] = useState<number>(5000000); // 5.00M default
+  const [maxSpend, setMaxSpend] = useState<number>(500000); // 500k default max spend per item
+  const [minVolumeFilter, setMinVolumeFilter] = useState<number>(100); // 100 default in desktop app
 
-  // High Alch Filters
+  // Desktop App Members & F2P Checkboxes:
+  // When membersEnabled=true & f2pOnly=false -> Members mode (shows both P2P & F2P items)
+  // When f2pOnly=true -> F2P Only mode (shows ONLY F2P items)
+  const [membersEnabled, setMembersEnabled] = useState<boolean>(true);
+  const [f2pOnly, setF2pOnly] = useState<boolean>(false);
+
+  // High Alch Search & Sort
   const [searchQuery, setSearchQuery] = useState('');
-  const [memberFilter, setMemberFilter] = useState<'all' | 'members' | 'f2p'>('all');
-  const [minVolumeFilter, setMinVolumeFilter] = useState<number>(1000); // default >1,000 volume to eliminate dead clue items
-  const [itemTypeFilter, setItemTypeFilter] = useState<string>('all');
-  const [sortBy, setSortBy] = useState<'hourly_profit' | 'profit' | 'roi' | 'buy_limit' | 'buy_price' | 'highalch' | 'volume'>('hourly_profit');
+  const [sortBy, setSortBy] = useState<'hourly_profit' | 'profit' | 'roi' | 'buy_limit' | 'buy_price' | 'highalch' | 'volume' | 'batch_profit'>('hourly_profit');
   const [sortAsc, setSortAsc] = useState(false);
+
+  // High Alch Item Type Category Filters (Matching matches_alch_type_filter in gui.py)
+  const [typeFilters, setTypeFilters] = useState<{ [key: string]: boolean }>({
+    rune: true,
+    addy: true,
+    mith: true,
+    dragon: true,
+    jewel: true,
+    bows: true,
+    staves: true,
+    barrows: true,
+    other: true,
+  });
 
   // Crafting Filters & Player Stats
   const [craftSearch, setCraftSearch] = useState('');
   const [craftSkillFilter, setCraftSkillFilter] = useState<string>('all');
   const [onlyUsableRecipes, setOnlyUsableRecipes] = useState(false);
   const [playerLevels, setPlayerLevels] = useState<{ [skill: string]: number }>({
-    crafting: 75,
-    smithing: 70,
-    fletching: 70,
-    magic: 75,
-    herblore: 70
+    crafting: 99,
+    smithing: 99,
+    fletching: 99,
+    magic: 99,
+    herblore: 99,
+    cooking: 99
   });
 
   // Overnight Optimizer Settings
@@ -108,6 +133,7 @@ export default function Dashboard() {
   // W308 Anvil Calculator
   const [w308CashStack, setW308CashStack] = useState<number>(5000000);
   const [w308SelectedItem, setW308SelectedItem] = useState<string>('Rune 2h sword');
+  const [w308Role, setW308Role] = useState<'buyer' | 'seller'>('buyer');
 
   // Bond Roadmap Interactive State (stored in localStorage)
   const [userCoins, setUserCoins] = useState<number>(0);
@@ -117,6 +143,9 @@ export default function Dashboard() {
   // 4h Timers State (stored in localStorage)
   const [timers, setTimers] = useState<Array<{ id: number; name: string; expiresAt: number; limit: number }>>([]);
   const [timerItemSearch, setTimerItemSearch] = useState('');
+
+  // 8-Slot Shopping Cart State (stored in localStorage)
+  const [cartItems, setCartItems] = useState<Array<{ id: number; name: string; buyPrice: number; limit: number; profit: number }>>([]);
 
   // Sync Token & Webhook Testing State
   const [syncToken, setSyncToken] = useState<string>('');
@@ -137,17 +166,20 @@ export default function Dashboard() {
       if (savedNats) setUserNats(Number(savedNats));
       const savedBatch = localStorage.getItem('alchmate_batch');
       if (savedBatch) setUserBatchValue(Number(savedBatch));
+      const savedCash = localStorage.getItem('alchmate_cash_stack');
+      if (savedCash) setCashStack(Number(savedCash));
       const savedToken = localStorage.getItem('alchmate_sync_token');
       if (savedToken) {
         setSyncToken(savedToken);
       } else {
-        // Generate initial private token for new users
         const initToken = 'alch_' + Math.random().toString(36).substring(2, 10) + Math.random().toString(36).substring(2, 10);
         setSyncToken(initToken);
         localStorage.setItem('alchmate_sync_token', initToken);
       }
       const savedTimers = localStorage.getItem('alchmate_timers');
       if (savedTimers) setTimers(JSON.parse(savedTimers));
+      const savedCart = localStorage.getItem('alchmate_cart');
+      if (savedCart) setCartItems(JSON.parse(savedCart));
       const savedLevels = localStorage.getItem('alchmate_player_levels');
       if (savedLevels) setPlayerLevels(JSON.parse(savedLevels));
     } catch (e) {
@@ -168,6 +200,10 @@ export default function Dashboard() {
     setUserBatchValue(val);
     localStorage.setItem('alchmate_batch', val.toString());
   };
+  const handleUpdateCashStack = (val: number) => {
+    setCashStack(val);
+    localStorage.setItem('alchmate_cash_stack', val.toString());
+  };
   const handleUpdatePlayerLevel = (skill: string, lvl: number) => {
     const updated = { ...playerLevels, [skill.toLowerCase()]: lvl };
     setPlayerLevels(updated);
@@ -182,6 +218,23 @@ export default function Dashboard() {
     navigator.clipboard.writeText(syncToken);
     setTokenCopied(true);
     setTimeout(() => setTokenCopied(false), 2000);
+  };
+
+  // Toggle Cart item
+  const handleToggleCart = (item: { id: number; name: string; buy_price: number; buy_limit: number; profit: number }) => {
+    const exists = cartItems.some(c => c.id === item.id);
+    let updated: Array<{ id: number; name: string; buyPrice: number; limit: number; profit: number }>;
+    if (exists) {
+      updated = cartItems.filter(c => c.id !== item.id);
+    } else {
+      if (cartItems.length >= 8) {
+        alert('All 8 Grand Exchange slots are already in your cart! Clear or remove an item to add this one.');
+        return;
+      }
+      updated = [...cartItems, { id: item.id, name: item.name, buyPrice: item.buy_price, limit: item.buy_limit, profit: item.profit }];
+    }
+    setCartItems(updated);
+    localStorage.setItem('alchmate_cart', JSON.stringify(updated));
   };
 
   // Fetch live prices on load
@@ -205,57 +258,101 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, []);
 
-  // Filtered & Sorted Alch Items with 24h Volume and Item Type Filter
+  // Helper matching desktop matches_alch_type_filter
+  const matchesAlchType = (itemName: string): boolean => {
+    const name = itemName.toLowerCase();
+    if (name.includes('rune ') || name.startsWith('rune ') || name.includes('runite')) {
+      return typeFilters.rune;
+    }
+    if (name.includes('adamant ') || name.startsWith('adamant ') || name.includes('addy ') || name.includes('adamantite')) {
+      return typeFilters.addy;
+    }
+    if (name.includes('mithril ') || name.startsWith('mithril ') || name.includes('mith ')) {
+      return typeFilters.mith;
+    }
+    if (name.includes('dragon ') || name.startsWith('dragon ')) {
+      return typeFilters.dragon;
+    }
+    if (['bracelet', 'necklace', 'amulet', 'ring', 'tiara', 'zenyte', 'onyx', 'diamond', 'ruby', 'emerald', 'sapphire'].some(w => name.includes(w))) {
+      return typeFilters.jewel;
+    }
+    if (['longbow', 'shortbow', 'comp bow', 'crossbow', 'bolts', 'arrow', 'dart', 'javelin', 'thrownaxe'].some(w => name.includes(w))) {
+      return typeFilters.bows;
+    }
+    if (['battlestaff', 'mystic', 'staff', 'wand', 'robe', 'hood', 'robes'].some(w => name.includes(w))) {
+      return typeFilters.staves;
+    }
+    if (['dharok', 'guthan', 'karil', 'torag', 'ahrim', 'verac', 'obsidian', 'granite'].some(w => name.includes(w))) {
+      return typeFilters.barrows;
+    }
+    if (name.includes("d'hide") || name.includes('dragonhide') || name.includes('leather')) {
+      return typeFilters.bows || typeFilters.other;
+    }
+    return typeFilters.other;
+  };
+
+  // Helper for fill speed (matching api.py)
+  const getFillSpeedInfo = (vol: number) => {
+    if (vol >= 5000) return { label: '⚡ Fast', color: 'text-amber-400' };
+    if (vol >= 500) return { label: '⏱️ Steady', color: 'text-cyan-400' };
+    return { label: '🐢 Slow', color: 'text-neutral-500' };
+  };
+
+  // Filtered & Sorted Alch Items (Matching desktop recalculate_alch_table)
   const filteredAlchItems = useMemo(() => {
     if (!priceData?.items) return [];
 
     return priceData.items
       .map((item) => {
-        // Compute buy price based on pricing strategy:
-        // 'bid' = lowest buy offer (p.low)
-        // 'smart' = p.low + 1
-        // 'ask' = instant buy (p.high)
-        const pObj = priceData.latest?.[String(item.id)];
-        let targetBuy = item.buy_price;
-        if (pObj) {
-          if (pricingStrategy === 'smart') {
-            targetBuy = (pObj.low || item.buy_price) + 1;
-          } else if (pricingStrategy === 'ask') {
-            targetBuy = pObj.high || item.buy_price;
+        // Strategy pricing matching desktop:
+        // 'patient' = bid (p.low)
+        // 'smart' = bid + 1 (if ask > bid)
+        // 'instant' = ask (p.high)
+        let targetBuy = item.bid || item.buy_price;
+        if (pricingStrategy === 'smart') {
+          if (item.ask > item.bid && item.bid > 0) {
+            targetBuy = item.bid + 1;
           } else {
-            targetBuy = pObj.low || item.buy_price;
+            targetBuy = item.bid || item.buy_price;
           }
+        } else if (pricingStrategy === 'instant') {
+          targetBuy = item.ask || item.buy_price;
         }
 
         const currentProfit = item.highalch - targetBuy - effectiveNatPrice;
+        const effectiveLimit = item.buy_limit || 70;
+        const batchProfit = currentProfit * effectiveLimit;
+        const maxAfford = targetBuy > 0 ? Math.min(effectiveLimit, Math.floor(cashStack / targetBuy)) : 0;
+        const speed = getFillSpeedInfo(item.volume);
+
         return {
           ...item,
           buy_price: targetBuy,
           profit: currentProfit,
           hourly_profit: currentProfit * 1200,
+          batch_profit: batchProfit,
+          max_afford: maxAfford,
+          speed: speed,
           roi: targetBuy > 0 ? (currentProfit / targetBuy) * 100 : 0
         };
       })
       .filter((item) => {
-        // 1. Member filter
-        if (memberFilter === 'members' && !item.members) return false;
-        if (memberFilter === 'f2p' && item.members) return false;
+        // 1. Members / F2P Logic (exact desktop match):
+        // If F2P Only is checked, hide members items.
+        if (f2pOnly && item.members) return false;
+        // If neither is enabled, return false
+        if (!membersEnabled && !f2pOnly) return false;
 
-        // 2. Volume filter (eliminates rare inactive clue items)
-        if (minVolumeFilter > 0 && item.volume < minVolumeFilter) return false;
+        // 2. Volume filter
+        if (minVolumeFilter > 0 && item.volume < minVolumeFilter && !searchQuery) return false;
 
-        // 3. Item type filter
-        if (itemTypeFilter !== 'all') {
-          const lowerName = item.name.toLowerCase();
-          if (itemTypeFilter === 'rune' && !lowerName.includes('rune')) return false;
-          if (itemTypeFilter === 'dragon' && !lowerName.includes('dragon')) return false;
-          if (itemTypeFilter === 'dhide' && !lowerName.includes("d'hide") && !lowerName.includes('dragonhide')) return false;
-          if (itemTypeFilter === 'staff' && !lowerName.includes('battlestaff') && !lowerName.includes('staff')) return false;
-          if (itemTypeFilter === 'jewelry' && !['bracelet', 'necklace', 'amulet', 'ring'].some(t => lowerName.includes(t))) return false;
-          if (itemTypeFilter === 'addy_mith' && !lowerName.includes('adamant') && !lowerName.includes('mithril')) return false;
-        }
+        // 3. Max Spend filter
+        if (maxSpend > 0 && item.buy_price > maxSpend) return false;
 
-        // 4. Search query
+        // 4. Item Type category filter
+        if (!matchesAlchType(item.name)) return false;
+
+        // 5. Search query
         if (searchQuery) {
           return item.name.toLowerCase().includes(searchQuery.toLowerCase());
         }
@@ -265,16 +362,15 @@ export default function Dashboard() {
         const factor = sortAsc ? 1 : -1;
         return (a[sortBy] - b[sortBy]) * factor;
       });
-  }, [priceData, searchQuery, memberFilter, minVolumeFilter, itemTypeFilter, effectiveNatPrice, pricingStrategy, sortBy, sortAsc]);
+  }, [priceData, searchQuery, membersEnabled, f2pOnly, minVolumeFilter, maxSpend, typeFilters, effectiveNatPrice, pricingStrategy, cashStack, sortBy, sortAsc]);
 
   // Overnight Sleepers (Items with good volume, >70 limit, >300 profit)
   const overnightItems = useMemo(() => {
     if (!priceData?.items) return [];
-    // Duration limit multiplier: 6h = 2x, 8h = 2x, 10h = 3x, 12h = 3x
     const limitMultiplier = overnightDuration >= 10 ? 3 : 2;
 
     return priceData.items
-      .filter((it) => it.profit > 250 && it.buy_limit >= 70 && it.volume > 500 && it.buy_price > 2000)
+      .filter((it) => it.profit > 200 && it.buy_limit >= 70 && it.volume > 400 && it.buy_price > 1500)
       .map((it) => {
         const adjustedLimit = it.buy_limit * limitMultiplier;
         const totalCapital = it.buy_price * adjustedLimit;
@@ -290,27 +386,35 @@ export default function Dashboard() {
       .slice(0, 30);
   }, [priceData, overnightDuration]);
 
-  // W308 Anvil Bulk Margins Sheet
+  // W308 Anvil Bulk Margins Sheet (Uses all 28 staples from desktop gui.py)
   const w308Items = useMemo(() => {
-    if (!priceData?.items) return [];
-    const w308Names = [
-      'Rune 2h sword', 'Rune platebody', 'Rune platelegs', 'Rune plateskirt',
-      'Adamant platebody', 'Rune battleaxe', 'Rune warhammer', 'Rune kiteshield',
-      'Rune chainbody', 'Rune full helm', 'Rune scimitar'
-    ];
-    return priceData.items
-      .filter((it) => w308Names.includes(it.name))
-      .map((item) => {
-        const w308Est = Math.round(item.highalch - 520);
-        const w308Profit = item.highalch - w308Est - effectiveNatPrice;
-        return {
-          ...item,
-          w308_price: w308Est,
-          w308_profit: w308Profit,
-          batch_1k_profit: w308Profit * 1000
-        };
-      });
-  }, [priceData, effectiveNatPrice]);
+    const latest = priceData?.latest || {};
+    return (w308StaplesData as any[]).map((st) => {
+      const iid = String(st.id);
+      const latestPrice = latest[iid]?.high || latest[iid]?.low || st.w308_buy;
+      const w308BuyPrice = st.w308_buy;
+      const w308SellP2P = st.w308_sell_p2p || st.w308_buy;
+
+      // Buyer mode: Player buys bulk in W308, High Alchs them
+      const profitBuyer = st.alch - w308BuyPrice - effectiveNatPrice;
+      const batch1kProfitBuyer = profitBuyer * 1000;
+
+      // Seller mode: Player crafts/smiths items, sells bulk in W308
+      const matPrice = latest[String(st.mat_id)]?.low || st.mat_default || 12000;
+      const matCost = matPrice * (st.mat_qty || 3);
+      const profitSeller = w308SellP2P - matCost;
+
+      return {
+        ...st,
+        ge_price: latestPrice,
+        w308_price: w308BuyPrice,
+        w308_sell_price: w308SellP2P,
+        profit_ea: w308Role === 'buyer' ? profitBuyer : profitSeller,
+        batch_1k_profit: w308Role === 'buyer' ? batch1kProfitBuyer : profitSeller * 1000,
+        mat_cost: matCost
+      };
+    });
+  }, [priceData, effectiveNatPrice, w308Role]);
 
   // Selected W308 item calculation
   const selectedW308 = useMemo(() => {
@@ -318,9 +422,9 @@ export default function Dashboard() {
     if (!item) return null;
     const maxQty = Math.floor(w308CashStack / item.w308_price);
     const totalSpend = maxQty * item.w308_price;
-    const grossAlch = maxQty * item.highalch;
+    const grossAlch = maxQty * item.alch;
     const totalNatCost = maxQty * effectiveNatPrice;
-    const netProfit = (item.highalch - item.w308_price - effectiveNatPrice) * maxQty;
+    const netProfit = (item.alch - item.w308_price - effectiveNatPrice) * maxQty;
     const chatAd = `B> ${item.name} ${(item.w308_price / 1000).toFixed(1)}k ea - VWB`;
 
     return {
@@ -401,11 +505,8 @@ export default function Dashboard() {
         };
       });
 
-      // Craft & Alch Profit
       const craftAndAlchProfit = outputHighAlch > 0 ? outputHighAlch - totalMaterialCost - effectiveNatPrice : 0;
-      // Normal profit if bought finished from GE
       const justAlchProfit = (outputHighAlch > 0 && finishedBuyPrice > 0) ? outputHighAlch - finishedBuyPrice - effectiveNatPrice : 0;
-      // Extra profit bonus by self-crafting
       const bonusVsBuy = craftAndAlchProfit - justAlchProfit;
 
       const hourlyActions = 1200;
@@ -473,6 +574,11 @@ export default function Dashboard() {
   const avgHourlyProfit = 650000;
   const hoursRemaining = (remainingGp / avgHourlyProfit).toFixed(1);
 
+  // Cart Status Calculations
+  const cartAllocated = cartItems.reduce((acc, c) => acc + (c.buyPrice * c.limit), 0);
+  const cartExpectedProfit = cartItems.reduce((acc, c) => acc + (c.profit * c.limit), 0);
+  const cartCashLeft = Math.max(0, cashStack - cartAllocated);
+
   // Handlers
   const handleCopyPrice = (id: number, price: number) => {
     navigator.clipboard.writeText(price.toString());
@@ -522,9 +628,9 @@ export default function Dashboard() {
   };
 
   const handleExportCSV = () => {
-    const headers = 'ID,Name,Type,Buy Price,High Alch,Profit,Hourly Profit,ROI,24h Volume,4h Limit\n';
+    const headers = 'ID,Name,Type,Bid (Offer),Ask (Instant),Alch Value,Profit/Cast,Hourly Profit,ROI,24h Volume,4h Limit\n';
     const rows = filteredAlchItems.map(it => 
-      `${it.id},"${it.name}",${it.members ? 'P2P' : 'F2P'},${it.buy_price},${it.highalch},${it.profit},${it.hourly_profit},${it.roi.toFixed(1)}%,${it.volume},${it.buy_limit}`
+      `${it.id},"${it.name}",${it.members ? 'P2P' : 'F2P'},${it.bid},${it.ask},${it.highalch},${it.profit},${it.hourly_profit},${it.roi.toFixed(1)}%,${it.volume},${it.buy_limit}`
     ).join('\n');
     const blob = new Blob([headers + rows], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
@@ -634,7 +740,7 @@ export default function Dashboard() {
 
             {/* Pricing Strategy Selector */}
             <div className="bg-[#1a1f2c] p-0.5 rounded-lg border border-[#2a3245] flex text-[11px] font-semibold">
-              {(['bid', 'smart', 'ask'] as const).map((s) => (
+              {(['patient', 'smart', 'instant'] as const).map((s) => (
                 <button
                   key={s}
                   onClick={() => setPricingStrategy(s)}
@@ -642,7 +748,7 @@ export default function Dashboard() {
                     pricingStrategy === s ? 'bg-amber-500 text-black font-bold' : 'text-neutral-400 hover:text-white'
                   }`}
                 >
-                  {s === 'bid' ? 'Bid' : s === 'smart' ? 'Bid+1' : 'Ask'}
+                  {s === 'patient' ? 'Bid' : s === 'smart' ? 'Bid+1' : 'Ask'}
                 </button>
               ))}
             </div>
@@ -664,7 +770,7 @@ export default function Dashboard() {
         {/* 5 Main Consolidated Super-Hub Tabs */}
         <div className="max-w-7xl mx-auto px-4 flex space-x-1 border-t border-[#1c212b] overflow-x-auto">
           {[
-            { id: 'alch_hub', label: 'High Alch & Trading (3,509)', icon: Coins },
+            { id: 'alch_hub', label: 'High Alch & Trading', icon: Coins },
             { id: 'craft_hub', label: 'Crafting Workshop (452)', icon: Hammer },
             { id: 'bond_hub', label: 'Bond Roadmap & Sustainer', icon: Ticket },
             { id: 'timers_hub', label: '4h GE Timers', icon: Clock },
@@ -720,13 +826,58 @@ export default function Dashboard() {
               ))}
             </div>
 
+            {/* 8-Slot Cart Status Bar (Matching desktop sub-bar) */}
+            <div className="bg-[#14171f] p-3 rounded-xl border border-[#242b3b] flex flex-wrap items-center justify-between text-xs gap-3">
+              <div className="flex items-center gap-3">
+                <span className="font-bold text-white flex items-center gap-1.5">
+                  <ShoppingCart className="w-4 h-4 text-amber-400" /> GE Slots: {cartItems.length}/8
+                </span>
+                <span className="text-neutral-400">|</span>
+                <span className="text-neutral-300">
+                  Allocated: <strong className="text-white font-mono">{(cartAllocated / 1000000).toFixed(2)}M gp</strong>
+                </span>
+                <span className="text-neutral-400">|</span>
+                <span className="text-neutral-300">
+                  Cash Left: <strong className="text-emerald-400 font-mono">{(cartCashLeft / 1000000).toFixed(2)}M gp</strong>
+                </span>
+                <span className="text-neutral-400">|</span>
+                <span className="text-neutral-300">
+                  Est. Profit: <strong className="text-amber-400 font-mono">+{cartExpectedProfit.toLocaleString()} gp</strong>
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    const names = cartItems.map(c => c.name).join(',');
+                    navigator.clipboard.writeText(`alchmate,${names}`);
+                    alert('Cart bank tag copied to clipboard!');
+                  }}
+                  disabled={cartItems.length === 0}
+                  className="bg-[#1a202c] hover:bg-[#242d3d] disabled:opacity-40 text-neutral-300 px-3 py-1 rounded-lg border border-[#2e374d] text-xs font-semibold"
+                >
+                  📋 Copy Cart Tag
+                </button>
+                <button
+                  onClick={() => {
+                    setCartItems([]);
+                    localStorage.removeItem('alchmate_cart');
+                  }}
+                  disabled={cartItems.length === 0}
+                  className="text-neutral-500 hover:text-rose-400 disabled:opacity-40 px-2 py-1 text-xs"
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+
             {/* Sub-view: Main Margins Table */}
             {alchSubView === 'table' && (
               <div className="space-y-4">
                 {/* Filter Bar with Volume & Type filters */}
                 <div className="bg-[#14171f] p-4 rounded-xl border border-[#242b3b] space-y-3">
                   <div className="flex flex-col md:flex-row gap-4 justify-between items-center">
-                    <div className="relative w-full md:w-96">
+                    <div className="relative w-full md:w-80">
                       <Search className="w-4 h-4 absolute left-3 top-3 text-neutral-500" />
                       <input
                         type="text"
@@ -738,145 +889,223 @@ export default function Dashboard() {
                     </div>
 
                     <div className="flex flex-wrap items-center gap-3 w-full md:w-auto justify-end text-xs">
-                      {/* Daily Volume Filter (Eliminates dead clue items!) */}
-                      <div className="flex items-center gap-1.5 bg-[#1b202c] px-3 py-1.5 rounded-lg border border-[#2e374d]">
-                        <span className="text-neutral-400">Min 24h Vol:</span>
+                      {/* Cash Stack Input */}
+                      <div className="flex items-center gap-1.5 bg-[#1b202c] px-2.5 py-1.5 rounded-lg border border-[#2e374d]">
+                        <span className="text-neutral-400">Cash:</span>
+                        <input
+                          type="number"
+                          value={cashStack}
+                          onChange={(e) => handleUpdateCashStack(Number(e.target.value))}
+                          className="w-20 bg-transparent text-white font-mono font-bold focus:outline-none"
+                        />
+                      </div>
+
+                      {/* Max Spend Input */}
+                      <div className="flex items-center gap-1.5 bg-[#1b202c] px-2.5 py-1.5 rounded-lg border border-[#2e374d]">
+                        <span className="text-neutral-400">Max Spend:</span>
+                        <input
+                          type="number"
+                          value={maxSpend}
+                          onChange={(e) => setMaxSpend(Number(e.target.value))}
+                          className="w-20 bg-transparent text-white font-mono font-bold focus:outline-none"
+                        />
+                      </div>
+
+                      {/* Daily Volume Filter (Matching desktop min_volume default 100) */}
+                      <div className="flex items-center gap-1.5 bg-[#1b202c] px-2.5 py-1.5 rounded-lg border border-[#2e374d]">
+                        <span className="text-neutral-400">Min Vol:</span>
                         <select
                           value={minVolumeFilter}
                           onChange={(e) => setMinVolumeFilter(Number(e.target.value))}
                           className="bg-transparent text-amber-400 font-bold focus:outline-none"
                         >
                           <option value={0} className="bg-[#1b202c]">All Volumes</option>
-                          <option value={100} className="bg-[#1b202c]">&gt; 100/day</option>
-                          <option value={1000} className="bg-[#1b202c]">&gt; 1,000/day (Recommended)</option>
-                          <option value={5000} className="bg-[#1b202c]">&gt; 5,000/day (High Liquidity)</option>
+                          <option value={100} className="bg-[#1b202c]">&gt; 100/day (Default)</option>
+                          <option value={1000} className="bg-[#1b202c]">&gt; 1,000/day (High)</option>
+                          <option value={5000} className="bg-[#1b202c]">&gt; 5,000/day (Instant)</option>
                         </select>
                       </div>
 
-                      {/* Member toggle */}
-                      <div className="bg-[#1b202c] p-1 rounded-lg border border-[#2e374d] flex text-xs font-semibold">
-                        {(['all', 'members', 'f2p'] as const).map((m) => (
-                          <button
-                            key={m}
-                            onClick={() => setMemberFilter(m)}
-                            className={`px-3 py-1 rounded-md capitalize transition-all ${
-                              memberFilter === m ? 'bg-amber-500 text-black font-bold' : 'text-neutral-400 hover:text-white'
-                            }`}
-                          >
-                            {m === 'members' ? 'P2P' : m}
-                          </button>
-                        ))}
+                      {/* Members & F2P Checkboxes (Exact Desktop Match) */}
+                      <div className="flex items-center gap-3 bg-[#1b202c] px-3 py-1.5 rounded-lg border border-[#2e374d] text-xs">
+                        <label className="flex items-center gap-1.5 cursor-pointer text-neutral-300 font-semibold">
+                          <input
+                            type="checkbox"
+                            checked={membersEnabled}
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              setMembersEnabled(checked);
+                              if (checked) setF2pOnly(false);
+                            }}
+                            className="rounded accent-amber-500"
+                          />
+                          Members
+                        </label>
+                        <label className="flex items-center gap-1.5 cursor-pointer text-neutral-300 font-semibold">
+                          <input
+                            type="checkbox"
+                            checked={f2pOnly}
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              setF2pOnly(checked);
+                              if (checked) setMembersEnabled(false);
+                            }}
+                            className="rounded accent-amber-500"
+                          />
+                          F2P Only
+                        </label>
                       </div>
                     </div>
                   </div>
 
-                  {/* Item Type Chips */}
-                  <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-[#1e2433] text-xs">
-                    <span className="text-neutral-500 font-semibold mr-1">Category:</span>
-                    {[
-                      { id: 'all', label: 'All Items' },
-                      { id: 'rune', label: '⚔️ Rune Armor' },
-                      { id: 'dragon', label: '🐉 Dragon Gear' },
-                      { id: 'dhide', label: "🏹 Dragonhide" },
-                      { id: 'staff', label: '🪄 Battlestaves' },
-                      { id: 'jewelry', label: '💎 Jewelry' },
-                      { id: 'addy_mith', label: '🛡️ Addy/Mith' },
-                    ].map((cat) => (
+                  {/* Item Type Checkboxes (Matches desktop matches_alch_type_filter) */}
+                  <div className="flex flex-wrap items-center justify-between pt-2 border-t border-[#1e2433] text-xs gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-neutral-500 font-semibold mr-1">Types:</span>
+                      {[
+                        { key: 'rune', label: '🛡️ Rune' },
+                        { key: 'addy', label: '⚔️ Adamant' },
+                        { key: 'mith', label: '🗡️ Mithril' },
+                        { key: 'dragon', label: '🐉 Dragon' },
+                        { key: 'jewel', label: '💍 Jewellery' },
+                        { key: 'bows', label: '🏹 Bows & Ammo' },
+                        { key: 'staves', label: '✨ Staves / Robes' },
+                        { key: 'barrows', label: '⚰️ Barrows' },
+                        { key: 'other', label: '📦 Other' },
+                      ].map((t) => (
+                        <button
+                          key={t.key}
+                          onClick={() => setTypeFilters(prev => ({ ...prev, [t.key]: !prev[t.key] }))}
+                          className={`px-2.5 py-1 rounded-md transition-all font-medium ${
+                            typeFilters[t.key]
+                              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold'
+                              : 'bg-[#191e29] text-neutral-500 hover:text-white border border-[#232938]'
+                          }`}
+                        >
+                          {t.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="flex items-center gap-2">
                       <button
-                        key={cat.id}
-                        onClick={() => setItemTypeFilter(cat.id)}
-                        className={`px-2.5 py-1 rounded-md transition-all font-medium ${
-                          itemTypeFilter === cat.id
-                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold'
-                            : 'bg-[#191e29] text-neutral-400 hover:text-white border border-[#232938]'
-                        }`}
+                        onClick={() => setTypeFilters({ rune: true, addy: true, mith: true, dragon: true, jewel: true, bows: true, staves: true, barrows: true, other: true })}
+                        className="text-[11px] text-amber-400 hover:underline"
                       >
-                        {cat.label}
+                        All
                       </button>
-                    ))}
+                      <span className="text-neutral-600">/</span>
+                      <button
+                        onClick={() => setTypeFilters({ rune: false, addy: false, mith: false, dragon: false, jewel: false, bows: false, staves: false, barrows: false, other: false })}
+                        className="text-[11px] text-neutral-500 hover:text-white"
+                      >
+                        None
+                      </button>
+                    </div>
                   </div>
                 </div>
 
-                {/* Table */}
+                {/* Main Table: EXACT COLUMNS MATCHING DESKTOP gui.py tree_alch */}
                 <div className="bg-[#14171f] rounded-xl border border-[#242b3b] overflow-hidden shadow-xl">
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-sm">
                       <thead className="bg-[#1a1f2b] text-neutral-400 uppercase text-xs border-b border-[#262e3f]">
                         <tr>
-                          <th className="px-4 py-3.5">Item</th>
-                          <th className="px-4 py-3.5">Type</th>
-                          <th className="px-4 py-3.5 cursor-pointer" onClick={() => setSortBy('buy_price')}>
-                            Buy Price ({pricingStrategy.toUpperCase()})
+                          <th className="px-3 py-3.5 text-center">Cart</th>
+                          <th className="px-4 py-3.5">Item Name</th>
+                          <th className="px-3 py-3.5 cursor-pointer" onClick={() => setSortBy('buy_price')}>
+                            Offer (Bid)
                           </th>
-                          <th className="px-4 py-3.5 cursor-pointer" onClick={() => setSortBy('highalch')}>Alch Value</th>
-                          <th className="px-4 py-3.5 cursor-pointer" onClick={() => setSortBy('profit')}>Profit / Cast</th>
-                          <th className="px-4 py-3.5 cursor-pointer text-amber-400" onClick={() => setSortBy('hourly_profit')}>Hourly Profit (1.2k)</th>
-                          <th className="px-4 py-3.5 cursor-pointer" onClick={() => setSortBy('roi')}>ROI %</th>
-                          <th className="px-4 py-3.5 cursor-pointer" onClick={() => setSortBy('volume')}>24h Volume</th>
-                          <th className="px-4 py-3.5">4h Limit</th>
-                          <th className="px-4 py-3.5 text-center">Timer</th>
+                          <th className="px-3 py-3.5">Instant (Ask)</th>
+                          <th className="px-3 py-3.5 cursor-pointer" onClick={() => setSortBy('highalch')}>Alch Value</th>
+                          <th className="px-3 py-3.5 cursor-pointer text-amber-400" onClick={() => setSortBy('profit')}>
+                            Profit / Alch ▼
+                          </th>
+                          <th className="px-3 py-3.5 cursor-pointer" onClick={() => setSortBy('hourly_profit')}>
+                            Profit / Hr (1.2k)
+                          </th>
+                          <th className="px-3 py-3.5">Fill Speed</th>
+                          <th className="px-3 py-3.5">4h Limit</th>
+                          <th className="px-3 py-3.5 cursor-pointer" onClick={() => setSortBy('batch_profit')}>
+                            4h Batch Profit
+                          </th>
+                          <th className="px-3 py-3.5">Max Afford</th>
+                          <th className="px-3 py-3.5 cursor-pointer" onClick={() => setSortBy('volume')}>24h Volume</th>
+                          <th className="px-3 py-3.5 text-center">Timer</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#1e2433]">
                         {loading ? (
                           <tr>
-                            <td colSpan={10} className="text-center py-12 text-neutral-500">
+                            <td colSpan={13} className="text-center py-12 text-neutral-500">
                               <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-amber-500" />
                               Loading live Grand Exchange prices...
                             </td>
                           </tr>
                         ) : filteredAlchItems.length === 0 ? (
                           <tr>
-                            <td colSpan={10} className="text-center py-12 text-neutral-500">
-                              No alchable items found matching your filters. Try lowering the 24h Volume threshold!
+                            <td colSpan={13} className="text-center py-12 text-neutral-500">
+                              No alchable items found matching your filters.
                             </td>
                           </tr>
                         ) : (
-                          filteredAlchItems.slice(0, 100).map((item) => (
-                            <tr key={item.id} className="hover:bg-[#1a202c]/50 transition-colors">
-                              <td className="px-4 py-3 font-medium text-white flex items-center gap-2">
-                                <img
-                                  src={`https://static.runelite.net/cache/item/icon/${item.id}.png`}
-                                  alt=""
-                                  className="w-6 h-6 object-contain shrink-0"
-                                  onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                                />
-                                <span className="text-white hover:text-amber-400 transition-colors">{item.name}</span>
-                              </td>
-                              <td className="px-4 py-3">
-                                <span className={`text-[11px] font-bold px-2 py-0.5 rounded ${item.members ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'}`}>
-                                  {item.members ? 'P2P' : 'F2P'}
-                                </span>
-                              </td>
-                              <td className="px-4 py-3 font-mono text-neutral-300">
-                                <button onClick={() => handleCopyPrice(item.id, item.buy_price)} title="Click to copy buy price" className="flex items-center gap-1.5 hover:text-white">
-                                  {item.buy_price.toLocaleString()} gp
-                                  {copiedId === item.id ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3 h-3 text-neutral-500" />}
-                                </button>
-                              </td>
-                              <td className="px-4 py-3 font-mono text-neutral-400">{item.highalch.toLocaleString()} gp</td>
-                              <td className={`px-4 py-3 font-mono font-bold ${item.profit > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                {item.profit > 0 ? `+${item.profit.toLocaleString()}` : item.profit.toLocaleString()} gp
-                              </td>
-                              <td className={`px-4 py-3 font-mono font-extrabold ${item.hourly_profit > 0 ? 'text-amber-400' : 'text-neutral-500'}`}>
-                                {item.hourly_profit > 0 ? `+${(item.hourly_profit / 1000).toFixed(0)}k/hr` : `${(item.hourly_profit / 1000).toFixed(0)}k/hr`}
-                              </td>
-                              <td className={`px-4 py-3 font-mono font-semibold ${item.roi > 0 ? 'text-emerald-400' : 'text-neutral-500'}`}>
-                                {item.roi.toFixed(1)}%
-                              </td>
-                              <td className="px-4 py-3 font-mono text-neutral-400">{item.volume > 0 ? item.volume.toLocaleString() : '—'}</td>
-                              <td className="px-4 py-3 font-mono text-neutral-400">{item.buy_limit > 0 ? item.buy_limit.toLocaleString() : '—'}</td>
-                              <td className="px-4 py-3 text-center">
-                                <button
-                                  onClick={() => handleAddTimer(item)}
-                                  title="Add to 4h GE Timer"
-                                  className="p-1 hover:bg-[#252c3f] rounded text-neutral-400 hover:text-amber-400 transition-colors"
-                                >
-                                  <Clock className="w-4 h-4" />
-                                </button>
-                              </td>
-                            </tr>
-                          ))
+                          filteredAlchItems.slice(0, 100).map((item) => {
+                            const inCart = cartItems.some(c => c.id === item.id);
+                            return (
+                              <tr key={item.id} className="hover:bg-[#1a202c]/50 transition-colors">
+                                <td className="px-3 py-3 text-center">
+                                  <button
+                                    onClick={() => handleToggleCart(item)}
+                                    title={inCart ? 'Remove from GE Cart' : 'Add to GE Cart'}
+                                    className={`p-1 rounded transition-colors ${inCart ? 'text-amber-400 font-bold' : 'text-neutral-500 hover:text-white'}`}
+                                  >
+                                    <ShoppingCart className="w-4 h-4" />
+                                  </button>
+                                </td>
+                                <td className="px-4 py-3 font-medium text-white flex items-center gap-2">
+                                  <img
+                                    src={`https://static.runelite.net/cache/item/icon/${item.id}.png`}
+                                    alt=""
+                                    className="w-6 h-6 object-contain shrink-0"
+                                    onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                                  />
+                                  <span className="text-white hover:text-amber-400 transition-colors">{item.name}</span>
+                                </td>
+                                <td className="px-3 py-3 font-mono text-neutral-300">
+                                  <button onClick={() => handleCopyPrice(item.id, item.bid || item.buy_price)} title="Click to copy bid price" className="flex items-center gap-1 hover:text-white">
+                                    {(item.bid || item.buy_price).toLocaleString()}
+                                    {copiedId === item.id ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3 text-neutral-600" />}
+                                  </button>
+                                </td>
+                                <td className="px-3 py-3 font-mono text-neutral-400">{item.ask ? item.ask.toLocaleString() : '—'}</td>
+                                <td className="px-3 py-3 font-mono text-neutral-400">{item.highalch.toLocaleString()}</td>
+                                <td className={`px-3 py-3 font-mono font-bold ${item.profit > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                  {item.profit > 0 ? `+${item.profit.toLocaleString()}` : item.profit.toLocaleString()}
+                                </td>
+                                <td className={`px-3 py-3 font-mono font-extrabold ${item.hourly_profit > 0 ? 'text-amber-400' : 'text-neutral-500'}`}>
+                                  {item.hourly_profit > 0 ? `+${(item.hourly_profit / 1000).toFixed(0)}k/hr` : `${(item.hourly_profit / 1000).toFixed(0)}k/hr`}
+                                </td>
+                                <td className={`px-3 py-3 font-semibold text-xs ${item.speed.color}`}>
+                                  {item.speed.label}
+                                </td>
+                                <td className="px-3 py-3 font-mono text-neutral-300">{item.buy_limit > 0 ? item.buy_limit.toLocaleString() : '—'}</td>
+                                <td className={`px-3 py-3 font-mono font-bold ${item.batch_profit > 0 ? 'text-emerald-400' : 'text-neutral-500'}`}>
+                                  {item.batch_profit > 0 ? `+${item.batch_profit.toLocaleString()}` : `${item.batch_profit.toLocaleString()}`}
+                                </td>
+                                <td className="px-3 py-3 font-mono text-neutral-300">{item.max_afford.toLocaleString()}</td>
+                                <td className="px-3 py-3 font-mono text-neutral-400">{item.volume > 0 ? item.volume.toLocaleString() : '—'}</td>
+                                <td className="px-3 py-3 text-center">
+                                  <button
+                                    onClick={() => handleAddTimer(item)}
+                                    title="Add to 4h GE Timer"
+                                    className="p-1 hover:bg-[#252c3f] rounded text-neutral-400 hover:text-amber-400 transition-colors"
+                                  >
+                                    <Clock className="w-4 h-4" />
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })
                         )}
                       </tbody>
                     </table>
@@ -976,7 +1205,6 @@ export default function Dashboard() {
             {/* Sub-view: W308 Anvil Sheet */}
             {alchSubView === 'w308' && (
               <div className="space-y-6">
-                {/* 2nd Screen Anti-Scam Bulk Calculator */}
                 <div className="bg-[#14171f] p-6 rounded-2xl border border-[#242b3b] space-y-4">
                   <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                     <div>
@@ -986,6 +1214,21 @@ export default function Dashboard() {
                       <p className="text-xs text-neutral-400 mt-1">
                         Bypass the 4-hour 70-unit GE buy limit and save 1% GE tax by trading bulk noted items directly with smiths and crafters!
                       </p>
+                    </div>
+
+                    <div className="flex items-center gap-2 bg-[#1b202c] p-1 rounded-lg border border-[#2e374d] text-xs">
+                      <button
+                        onClick={() => setW308Role('buyer')}
+                        className={`px-3 py-1 rounded font-bold transition-all ${w308Role === 'buyer' ? 'bg-amber-500 text-black' : 'text-neutral-400 hover:text-white'}`}
+                      >
+                        Buyer (High Alcher)
+                      </button>
+                      <button
+                        onClick={() => setW308Role('seller')}
+                        className={`px-3 py-1 rounded font-bold transition-all ${w308Role === 'seller' ? 'bg-amber-500 text-black' : 'text-neutral-400 hover:text-white'}`}
+                      >
+                        Seller (Crafter / Smither)
+                      </button>
                     </div>
                   </div>
 
@@ -1042,17 +1285,17 @@ export default function Dashboard() {
                     )}
                   </div>
 
-                  {/* Margins Table */}
+                  {/* Margins Table (All 28 W308 Staples) */}
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-sm font-mono">
                       <thead className="bg-[#1a1f2b] text-neutral-400 uppercase text-xs border-b border-[#262e3f]">
                         <tr>
                           <th className="px-4 py-3">Item</th>
-                          <th className="px-4 py-3">GE Instant (Ask)</th>
+                          <th className="px-4 py-3">GE Instant</th>
                           <th className="px-4 py-3">High Alch</th>
-                          <th className="px-4 py-3">W308 Std Buy</th>
-                          <th className="px-4 py-3 text-emerald-400">Profit / Alch</th>
-                          <th className="px-4 py-3 text-amber-400">1,000-Item Profit</th>
+                          <th className="px-4 py-3">{w308Role === 'buyer' ? 'W308 Buy (ea)' : 'W308 Sell (ea)'}</th>
+                          <th className="px-4 py-3 text-emerald-400">Profit / Ea</th>
+                          <th className="px-4 py-3 text-amber-400">1,000-Batch Profit</th>
                           <th className="px-4 py-3 text-center">Action</th>
                         </tr>
                       </thead>
@@ -1068,10 +1311,12 @@ export default function Dashboard() {
                               />
                               {item.name}
                             </td>
-                            <td className="px-4 py-3 text-neutral-300">{item.buy_price.toLocaleString()} gp</td>
-                            <td className="px-4 py-3 text-neutral-400">{item.highalch.toLocaleString()} gp</td>
-                            <td className="px-4 py-3 text-cyan-300">{item.w308_price.toLocaleString()} gp</td>
-                            <td className="px-4 py-3 text-emerald-400 font-bold">+{item.w308_profit.toLocaleString()} gp</td>
+                            <td className="px-4 py-3 text-neutral-300">{item.ge_price.toLocaleString()} gp</td>
+                            <td className="px-4 py-3 text-neutral-400">{item.alch.toLocaleString()} gp</td>
+                            <td className="px-4 py-3 text-cyan-300">
+                              {(w308Role === 'buyer' ? item.w308_price : item.w308_sell_price).toLocaleString()} gp
+                            </td>
+                            <td className="px-4 py-3 text-emerald-400 font-bold">+{item.profit_ea.toLocaleString()} gp</td>
                             <td className="px-4 py-3 text-amber-400 font-extrabold">+{item.batch_1k_profit.toLocaleString()} gp</td>
                             <td className="px-4 py-3 text-center">
                               <button
@@ -1094,27 +1339,35 @@ export default function Dashboard() {
             {alchSubView === 'rec' && (
               <div className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  {/* Category 1: Workhorses */}
+                  {/* Category 1: Workhorses (From desktop workhorse_items.json) */}
                   <div className="bg-[#14171f] p-5 rounded-xl border border-[#242b3b] space-y-4">
                     <h3 className="font-bold text-white flex items-center gap-2">
                       <Sparkles className="w-4 h-4 text-amber-400" /> All-Time Workhorses
                     </h3>
-                    <p className="text-xs text-neutral-400">High-volume items that fill rapidly 24/7 with reliable margins.</p>
+                    <p className="text-xs text-neutral-400">High-volume staples that fill rapidly 24/7 with zero price floor risk.</p>
                     <div className="space-y-2">
-                      {filteredAlchItems.filter(it => it.volume > 5000 && it.profit > 200).slice(0, 5).map(it => (
-                        <div key={it.id} className="bg-[#191e29] p-3 rounded-lg flex justify-between items-center text-xs">
-                          <div className="flex items-center gap-2">
-                            <img
-                              src={`https://static.runelite.net/cache/item/icon/${it.id}.png`}
-                              alt=""
-                              className="w-5 h-5 object-contain shrink-0"
-                              onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                            />
-                            <span className="font-bold text-white">{it.name}</span>
+                      {(workhorseItemsData as any[]).slice(0, 5).map(wh => {
+                        const it = filteredAlchItems.find(i => i.id === wh.id);
+                        return (
+                          <div key={wh.id} className="bg-[#191e29] p-3 rounded-lg text-xs space-y-1">
+                            <div className="flex justify-between items-center">
+                              <div className="flex items-center gap-2">
+                                <img
+                                  src={`https://static.runelite.net/cache/item/icon/${wh.id}.png`}
+                                  alt=""
+                                  className="w-5 h-5 object-contain shrink-0"
+                                  onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                                />
+                                <span className="font-bold text-white">{wh.name}</span>
+                              </div>
+                              <span className="text-emerald-400 font-mono font-bold">
+                                {it ? `+${it.profit} gp` : 'Active'}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-neutral-400 italic">{wh.verdict}</p>
                           </div>
-                          <span className="text-emerald-400 font-mono font-bold">+{it.profit} gp</span>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
 
@@ -1125,7 +1378,7 @@ export default function Dashboard() {
                     </h3>
                     <p className="text-xs text-neutral-400">Maximum GP per single cast. Perfect for active high-margin runs.</p>
                     <div className="space-y-2">
-                      {filteredAlchItems.filter(it => it.profit > 500 && it.volume > 500).slice(0, 5).map(it => (
+                      {filteredAlchItems.filter(it => it.profit > 450 && it.volume > 500).slice(0, 5).map(it => (
                         <div key={it.id} className="bg-[#191e29] p-3 rounded-lg flex justify-between items-center text-xs">
                           <div className="flex items-center gap-2">
                             <img
@@ -1508,7 +1761,7 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* Interactive User Wealth Inputs (Custom for any player) */}
+            {/* Interactive User Wealth Inputs */}
             <div className="bg-[#14171f] p-6 rounded-2xl border border-[#242b3b] space-y-4">
               <h3 className="font-bold text-white text-lg flex items-center gap-2">
                 <Sliders className="w-5 h-5 text-amber-400" /> Enter Your Current In-Game Wealth
