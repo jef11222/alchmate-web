@@ -32,12 +32,16 @@ import {
   Send,
   Eye,
   EyeOff,
-  ShoppingCart
+  ShoppingCart,
+  BookOpen,
+  Bell
 } from 'lucide-react';
 import geRecipesData from '../data/ge_recipes.json';
 import craftingRecipesData from '../data/crafting_recipes.json';
 import workhorseItemsData from '../data/workhorse_items.json';
 import w308StaplesData from '../data/w308_staples.json';
+import overnightCandidatesData from '../data/overnight_candidates.json';
+import skillingGuidesData from '../data/skilling_guides.json';
 
 interface AlchItem {
   id: number;
@@ -286,8 +290,7 @@ export default function Dashboard() {
   // Alch Hub Sub-views
   const [alchSubView, setAlchSubView] = useState<'table' | 'overnight' | 'w308' | 'bank_tag' | 'rec'>('table');
 
-  // Craft Hub Sub-tabs: GE Production (229) vs Craft & Alch (223)
-  const [craftSubTab, setCraftSubTab] = useState<'ge_sell' | 'craft_alch'>('ge_sell');
+
 
   const [priceData, setPriceData] = useState<PriceData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -356,9 +359,36 @@ export default function Dashboard() {
     cooking: 99
   });
 
-  // Overnight Optimizer Settings
+  // Overnight Optimizer Settings (Matching desktop gui.py:1861-1935)
   const [overnightBudget, setOvernightBudget] = useState<number>(5000000);
-  const [overnightDuration, setOvernightDuration] = useState<number>(8); // 6, 8, 10, 12 hours
+  const [overnightDuration, setOvernightDuration] = useState<number>(12); // 6, 8, 10, 12 hours
+  const [overnightStrat, setOvernightStrat] = useState<'safe' | 'deep'>('safe');
+  const [overnightSlots, setOvernightSlots] = useState<number>(8);
+  const [overnightFocus, setOvernightFocus] = useState<string>('All');
+  const [overnightAlchTime, setOvernightAlchTime] = useState<string>('1h');
+  const [overnightMaxSlot, setOvernightMaxSlot] = useState<number | null>(500);
+  const [overnightOwnedNat, setOvernightOwnedNat] = useState<boolean>(true);
+  const [overnightSortCol, setOvernightSortCol] = useState<string>('slot_profit');
+  const [overnightSortAsc, setOvernightSortAsc] = useState<boolean>(false);
+
+  // Crafting Workshop Sub-tabs: GE Production vs Direct Alch vs Level Training Guide
+  const [craftSubTab, setCraftSubTab] = useState<'ge_sell' | 'craft_alch' | 'guide'>('ge_sell');
+
+  // Skilling Guide State (Smithing, Fletching, Crafting, Magic from skilling_guide.py)
+  const [guideSkill, setGuideSkill] = useState<'Smithing' | 'Fletching' | 'Crafting' | 'Magic'>('Smithing');
+  const [guideCurrentLevel, setGuideCurrentLevel] = useState<number>(1);
+  const [guideTargetLevel, setGuideTargetLevel] = useState<number>(99);
+  const [guideMembers, setGuideMembers] = useState<boolean>(true);
+  const [guideStyleFilter, setGuideStyleFilter] = useState<'all' | 'fast' | 'profit' | 'afk'>('all');
+
+  // Session & Activity Hub Sub-tabs (Live Session Ledger vs Alerts Watch vs Cloud Sync)
+  const [activitySubTab, setActivitySubTab] = useState<'session' | 'alerts' | 'sync'>('session');
+  const [sessionViewMode, setSessionViewMode] = useState<'consolidated' | 'detailed'>('detailed');
+  const [showManualLogModal, setShowManualLogModal] = useState<boolean>(false);
+  const [manualItemName, setManualItemName] = useState<string>('Rune 2h sword');
+  const [manualQty, setManualQty] = useState<number>(100);
+  const [manualBuyPrice, setManualBuyPrice] = useState<number>(37600);
+  const [manualHighAlch, setManualHighAlch] = useState<number>(38400);
 
   // W308 Anvil Calculator
   const [w308CashStack, setW308CashStack] = useState<number>(5000000);
@@ -701,27 +731,302 @@ export default function Dashboard() {
       });
   }, [priceData, searchQuery, membersEnabled, f2pOnly, minVolumeFilter, maxSpend, unlimitedBudget, minProfitFilter, speedFilter, hideMaxedCooldown, timers, typeFilters, effectiveNatPrice, pricingStrategy, cashStack, sortBy, sortAsc]);
 
-  // Overnight Sleepers (Items with good volume, >70 limit, >300 profit)
-  const overnightItems = useMemo(() => {
-    if (!priceData?.items) return [];
-    const limitMultiplier = overnightDuration >= 10 ? 3 : 2;
+  // Overnight Multi-Pass Greedy Knapsack Optimizer (Matching desktop gui.py:7651)
+  const overnightResult = useMemo(() => {
+    const latest = priceData?.latest || {};
+    const cycles = (overnightDuration >= 10 ? 3 : 2);
+    const natCost = overnightOwnedNat ? 0 : effectiveNatPrice;
+    const totalBudget = unlimitedBudget ? 999999999 : (overnightBudget || cashStack);
 
-    return priceData.items
-      .filter((it) => it.profit > 200 && it.buy_limit >= 70 && it.volume > 400 && it.buy_price > 1500)
-      .map((it) => {
-        const adjustedLimit = it.buy_limit * limitMultiplier;
-        const totalCapital = it.buy_price * adjustedLimit;
-        const totalExpectedProfit = it.profit * adjustedLimit;
-        return {
-          ...it,
-          adjusted_limit: adjustedLimit,
-          overnight_capital: totalCapital,
-          overnight_profit: totalExpectedProfit
-        };
-      })
-      .sort((a, b) => b.overnight_profit - a.overnight_profit)
-      .slice(0, 30);
-  }, [priceData, overnightDuration]);
+    let maxCasts: number | null = null;
+    if (overnightAlchTime === '30m') maxCasts = 600;
+    else if (overnightAlchTime === '45m') maxCasts = 900;
+    else if (overnightAlchTime === '1h') maxCasts = 1200;
+    else if (overnightAlchTime === '2h') maxCasts = 2400;
+    else if (overnightAlchTime === '3h') maxCasts = 3600;
+
+    const maxPerItem = overnightMaxSlot;
+
+    // Filter candidate pool
+    const candidates = (overnightCandidatesData as any[]).filter((it) => {
+      const isMem = it.members;
+      if (!membersEnabled && isMem) return false;
+      if (f2pOnly && isMem) return false;
+
+      const grp = it.group || '';
+      const nameLower = it.name.toLowerCase();
+      const baseLimit = it.limit || 70;
+
+      const isBulkFocus = overnightFocus === 'Battlestaves' || overnightFocus === 'Stackables';
+      if (!isBulkFocus && !searchQuery && baseLimit > 250) return false;
+
+      if (overnightFocus === 'Rune Heavy') {
+        if (grp !== 'rune' && !nameLower.includes('rune')) return false;
+      } else if (overnightFocus === 'Adamant') {
+        if (grp !== 'adamant' && !nameLower.includes('adamant')) return false;
+      } else if (overnightFocus === 'Battlestaves') {
+        if (grp !== 'staff' && !nameLower.includes('staff')) return false;
+      } else if (overnightFocus === 'Stackables') {
+        if (grp !== 'bolt' && grp !== 'ammo' && !nameLower.includes('bolt')) return false;
+      }
+
+      if (searchQuery) {
+        if (!nameLower.includes(searchQuery.toLowerCase()) && !it.verdict.toLowerCase().includes(searchQuery.toLowerCase())) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+
+    // Compute bids and valid items
+    const validItems = candidates.map((it) => {
+      const iid = String(it.id);
+      const platest = latest[iid] || {};
+      const curLow = platest.low || platest.high || (it.alch - 500);
+
+      // Safe bid: 25th percentile of 48h lows + 5 gp (~curLow * 0.985)
+      // Deep bid: 10th percentile of 48h lows with 7d floor clamp (~curLow * 0.965)
+      const bid = overnightStrat === 'deep' ? Math.floor(curLow * 0.965) : Math.floor(curLow * 0.985);
+      const profEa = it.alch - bid - natCost;
+
+      let periodLimit = (it.limit || 70) * cycles;
+      if (maxPerItem) periodLimit = Math.min(periodLimit, maxPerItem);
+      if (maxCasts) periodLimit = Math.min(periodLimit, maxCasts);
+
+      const roi = profEa / Math.max(1, bid);
+      const conf = overnightStrat === 'deep' ? '75% (Moderate)' : '95% (High)';
+
+      return {
+        id: it.id,
+        name: it.name,
+        bid,
+        alch: it.alch,
+        profit_ea: profEa,
+        period_limit: periodLimit,
+        roi,
+        period_profit: profEa * periodLimit,
+        period_cost: bid * periodLimit,
+        verdict: it.verdict,
+        conf,
+      };
+    }).filter(it => it.bid > 0 && it.profit_ea > 0);
+
+    // Multi-pass greedy knapsack
+    const passes = [
+      [...validItems].sort((a, b) => b.profit_ea - a.profit_ea), // Pass 1: highest profit per cast
+      [...validItems].sort((a, b) => b.roi - a.roi),             // Pass 2: highest ROI
+      [...validItems].sort((a, b) => b.period_profit - a.period_profit), // Pass 3: highest batch profit
+    ];
+
+    let bestAlloc: Array<any> = [];
+    let bestProfit = -1;
+    let bestSpend = 0;
+
+    for (const candidateList of passes) {
+      let remBudget = totalBudget;
+      let remCasts = maxCasts || 999999999;
+      const curAlloc: Array<any> = [];
+      let totSpend = 0;
+      let totProf = 0;
+
+      for (const it of candidateList) {
+        if (curAlloc.length >= overnightSlots || remCasts <= 0) break;
+        const canBuy = Math.min(it.period_limit, remCasts, Math.floor(remBudget / it.bid));
+        if (canBuy > 0) {
+          const cost = canBuy * it.bid;
+          const prof = canBuy * it.profit_ea;
+          remBudget -= cost;
+          remCasts -= canBuy;
+          totSpend += cost;
+          totProf += prof;
+          curAlloc.push({
+            ...it,
+            qty: canBuy,
+            cost,
+            profit: prof,
+          });
+        }
+      }
+
+      if (totProf > bestProfit) {
+        bestProfit = totProf;
+        bestAlloc = curAlloc;
+        bestSpend = totSpend;
+      }
+    }
+
+    const allocMap = new Map(bestAlloc.map(a => [a.id, a]));
+    const totalItems = bestAlloc.reduce((acc, a) => acc + a.qty, 0);
+    const leftoverGp = Math.max(0, totalBudget - bestSpend);
+    const alchMins = Math.round(totalItems / 20); // 1,200 casts/hr = 20/min
+    const hourlyRate = alchMins > 0 ? (bestProfit / (alchMins / 60)) : bestProfit;
+
+    // Full table items: allocated first, then remaining candidates
+    const tableItems = validItems.map((it) => {
+      const allocated = allocMap.get(it.id);
+      return {
+        ...it,
+        isAllocated: !!allocated,
+        alloc_qty: allocated ? allocated.qty : 0,
+        total_cost: allocated ? allocated.cost : it.period_cost,
+        slot_profit: allocated ? allocated.profit : it.period_profit,
+      };
+    }).sort((a, b) => {
+      let valA: any = a[overnightSortCol as keyof typeof a];
+      let valB: any = b[overnightSortCol as keyof typeof b];
+      if (typeof valA === 'string') {
+        return overnightSortAsc ? valA.localeCompare(valB) : valB.localeCompare(valA);
+      }
+      valA = valA || 0;
+      valB = valB || 0;
+      return overnightSortAsc ? valA - valB : valB - valA;
+    });
+
+    return {
+      alloc: bestAlloc,
+      totalSpend: bestSpend,
+      totalProfit: bestProfit > 0 ? bestProfit : 0,
+      totalItems,
+      leftoverGp,
+      alchMins,
+      hourlyRate,
+      tableItems,
+    };
+  }, [priceData, overnightDuration, overnightStrat, overnightSlots, overnightFocus, overnightAlchTime, overnightMaxSlot, overnightOwnedNat, membersEnabled, f2pOnly, searchQuery, effectiveNatPrice, cashStack, unlimitedBudget, overnightBudget, overnightSortCol, overnightSortAsc]);
+
+  const toggleSortOvernight = (col: string) => {
+    if (overnightSortCol === col) {
+      setOvernightSortAsc(!overnightSortAsc);
+    } else {
+      setOvernightSortCol(col);
+      setOvernightSortAsc(false);
+    }
+  };
+
+  const handleSendOvernightBagToCart = () => {
+    if (!overnightResult.alloc || overnightResult.alloc.length === 0) {
+      alert('Please configure your overnight bag first.');
+      return;
+    }
+    const toAdd = overnightResult.alloc.slice(0, 8).map(it => ({
+      id: it.id,
+      name: it.name,
+      buyPrice: it.bid,
+      limit: it.qty,
+      profit: it.profit_ea
+    }));
+    const updated = [...cartItems.filter(c => !toAdd.some(a => a.id === c.id)), ...toAdd].slice(0, 8);
+    setCartItems(updated);
+    localStorage.setItem('alchmate_cart', JSON.stringify(updated));
+    showToast(`🛒 Sent ${toAdd.length} overnight items directly to your GE Shopping Cart!`);
+  };
+
+  const handleCopyOvernightPlan = () => {
+    if (!overnightResult.alloc || overnightResult.alloc.length === 0) return;
+    const lines = [
+      `=== OSRS GE Overnight Plan (${overnightDuration}h Window - ${overnightDuration >= 10 ? '3x' : '2x'} Limits) ===`,
+      `Budget: ${formatGp(cashStack)} | Allocated: ${formatGp(overnightResult.totalSpend)} | Expected Profit: +${formatGp(overnightResult.totalProfit)}`,
+      '',
+      ...overnightResult.alloc.map((it, idx) => `Slot #${idx + 1}: ${it.name} | Bid: ${it.bid.toLocaleString()} gp | Qty: ${it.qty.toLocaleString()} | Total: ${it.cost.toLocaleString()} gp | Profit: +${it.profit.toLocaleString()} gp (${it.conf})`)
+    ];
+    navigator.clipboard.writeText(lines.join('\n'));
+    setCopiedPlan(true);
+    showToast('📋 Copied formatted overnight buy orders to clipboard!');
+    setTimeout(() => setCopiedPlan(false), 2000);
+  };
+
+  // Official OSRS Level to XP calculation formula (matches skilling_guide.py:7)
+  const getXpForLevel = (lvl: number) => {
+    if (lvl <= 1) return 0;
+    let total = 0;
+    for (let i = 1; i < lvl; i++) {
+      total += Math.floor(i + 300.0 * Math.pow(2.0, i / 7.0));
+    }
+    return Math.floor(total / 4);
+  };
+
+  const handleAddManualSession = () => {
+    if (manualQty <= 0 || manualBuyPrice <= 0) {
+      alert('Please enter valid quantity and price greater than 0.');
+      return;
+    }
+    const totalCoins = manualQty * manualBuyPrice;
+    const totalAlch = manualQty * manualHighAlch;
+    const totalNats = manualQty * effectiveNatPrice;
+    const netProfit = totalAlch - totalCoins - totalNats;
+    const magicXp = manualQty * 65;
+
+    const entry = {
+      id: 'manual_' + Date.now(),
+      timestamp: Date.now(),
+      itemName: manualItemName,
+      qty: manualQty,
+      price: manualBuyPrice,
+      totalCoins,
+      netProfit,
+      role: 'alch' as const,
+      magicXp,
+    };
+    const updated = [entry, ...sessionLog];
+    setSessionLog(updated);
+    localStorage.setItem('alchmate_session_log', JSON.stringify(updated));
+    setShowManualLogModal(false);
+    showToast(`✓ Logged ${manualQty.toLocaleString()}x ${manualItemName} manual alch session!`);
+  };
+
+  const handleExportSessionCSV = () => {
+    if (sessionLog.length === 0) {
+      alert('No sessions recorded in your ledger yet.');
+      return;
+    }
+    const headers = ['Timestamp', 'Item Name', 'Role', 'Quantity', 'Buy Price (ea)', 'Total Coins', 'Net Profit', 'Magic XP'];
+    const rows = sessionLog.map(s => [
+      new Date(s.timestamp).toISOString(),
+      s.itemName,
+      s.role,
+      s.qty,
+      s.price,
+      s.totalCoins,
+      s.netProfit,
+      s.magicXp || 0
+    ]);
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `alchmate_session_ledger_${Date.now()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast('📥 Downloaded Session Ledger CSV!');
+  };
+
+  const handleClearSession = () => {
+    if (confirm('Are you sure you want to clear your Session Ledger?')) {
+      setSessionLog([]);
+      localStorage.removeItem('alchmate_session_log');
+      showToast('Session Ledger cleared.');
+    }
+  };
+
+  const handleDeleteSessionItem = (id: string) => {
+    const updated = sessionLog.filter(s => s.id !== id);
+    setSessionLog(updated);
+    localStorage.setItem('alchmate_session_log', JSON.stringify(updated));
+    showToast('Removed entry from Session Ledger.');
+  };
+
+  const handleSelectManualItem = (itemName: string) => {
+    setManualItemName(itemName);
+    if (priceData?.items) {
+      const match = priceData.items.find(i => i.name.toLowerCase() === itemName.toLowerCase());
+      if (match) {
+        setManualBuyPrice(match.buy_price || match.bid);
+        setManualHighAlch(match.highalch);
+      }
+    }
+  };
 
   // OSRS Offer-X In-Game Trade Shorthand (e.g. 7580k, 15m)
   const getOfferXShorthand = (amount: number) => {
@@ -1235,15 +1540,6 @@ export default function Dashboard() {
     navigator.clipboard.writeText(tagString);
     setTagCopied(true);
     setTimeout(() => setTagCopied(false), 2000);
-  };
-
-  const handleCopyOvernightPlan = () => {
-    const lines = overnightItems.slice(0, 8).map((it, idx) => 
-      `Slot ${idx + 1}: ${it.name} | Bid: ${it.buy_price.toLocaleString()} gp | Qty: ${it.adjusted_limit} | Est Profit: +${it.overnight_profit.toLocaleString()} gp`
-    );
-    navigator.clipboard.writeText(lines.join('\n'));
-    setCopiedPlan(true);
-    setTimeout(() => setCopiedPlan(false), 2000);
   };
 
   const handleCopyChatAd = (adText: string, itemKey: string) => {
@@ -2055,10 +2351,10 @@ export default function Dashboard() {
               </div>
             )}
 
-            {/* Sub-view: Overnight Planner */}
+            {/* Sub-view: Overnight Planner (Desktop gui.py:1833-2050 parity) */}
             {alchSubView === 'overnight' && (
               <div className="space-y-6">
-                {/* Overnight Strategy Callout & Multi-Day Dip Analysis Banner (Desktop parity) */}
+                {/* 1. Market Timing & Sleep Strategy Banner Card */}
                 <div className="bg-[#14171f] p-4 rounded-xl border border-[#242b3b] shadow-lg space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#202636] pb-3">
                     <div className="flex flex-wrap items-center gap-3">
@@ -2081,86 +2377,282 @@ export default function Dashboard() {
                   </div>
                 </div>
 
-                <div className="bg-[#14171f] p-6 rounded-2xl border border-[#242b3b] space-y-4">
-                  <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                    <div>
-                      <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                        <Moon className="w-5 h-5 text-indigo-400" /> GE Overnight Optimizer & Sleepers
-                      </h3>
-                      <p className="text-xs text-neutral-400 mt-1">
-                        High-margin items ideal for leaving patient Grand Exchange buy offers overnight while you sleep across limit reset windows.
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-3">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-neutral-400 font-semibold">Sleep Duration:</span>
+                {/* 2. Control Strip (Duration, Strategy, Slots, Focus, Alch Time, Max/Slot, Owned Nats) */}
+                <div className="bg-[#14171f] p-4 rounded-xl border border-[#242b3b] shadow-lg space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex flex-wrap items-center gap-3 text-xs">
+                      {/* Duration */}
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-amber-400 font-bold">💤 Duration:</span>
                         <select
                           value={overnightDuration}
                           onChange={(e) => setOvernightDuration(Number(e.target.value))}
-                          className="bg-[#191e29] border border-[#2b3547] rounded-lg px-2.5 py-1.5 text-xs text-amber-400 font-bold focus:outline-none"
+                          className="bg-[#191e29] border border-[#2b3547] rounded-lg px-2.5 py-1.5 text-white font-semibold focus:outline-none"
                         >
-                          <option value={6} className="bg-[#191e29]">6 Hours (2x limit)</option>
-                          <option value={8} className="bg-[#191e29]">8 Hours (2x limit)</option>
-                          <option value={10} className="bg-[#191e29]">10 Hours (3x limit)</option>
-                          <option value={12} className="bg-[#191e29]">12 Hours (3x limit)</option>
+                          <option value={6}>6 Hours (2x limit)</option>
+                          <option value={8}>8 Hours (2x limit)</option>
+                          <option value={10}>10 Hours (3x limit)</option>
+                          <option value={12}>12 Hours (3x limit)</option>
                         </select>
                       </div>
 
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-neutral-400 font-semibold">Capital:</span>
-                        <input 
-                          type="number" 
-                          value={overnightBudget} 
-                          onChange={(e) => setOvernightBudget(Number(e.target.value))}
-                          className="bg-[#191e29] border border-[#2b3547] rounded-lg px-3 py-1.5 text-xs text-white font-mono w-28 font-bold"
-                        />
+                      {/* Strategy */}
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-amber-400 font-bold">🎯 Strategy:</span>
+                        <select
+                          value={overnightStrat}
+                          onChange={(e) => setOvernightStrat(e.target.value as any)}
+                          className="bg-[#191e29] border border-[#2b3547] rounded-lg px-2.5 py-1.5 text-white font-semibold focus:outline-none"
+                        >
+                          <option value="safe">Safe Morning Fill (25% Low)</option>
+                          <option value="deep">Deep-Dip Sniper (10% Low)</option>
+                        </select>
                       </div>
 
+                      {/* Slots */}
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-amber-400 font-bold">📦 Slots:</span>
+                        <select
+                          value={overnightSlots}
+                          onChange={(e) => setOvernightSlots(Number(e.target.value))}
+                          className="bg-[#191e29] border border-[#2b3547] rounded-lg px-2.5 py-1.5 text-white font-semibold focus:outline-none"
+                        >
+                          <option value={1}>1 Slot</option>
+                          <option value={2}>2 Slots</option>
+                          <option value={3}>3 Slots (F2P)</option>
+                          <option value={4}>4 Slots</option>
+                          <option value={5}>5 Slots</option>
+                          <option value={6}>6 Slots</option>
+                          <option value={7}>7 Slots</option>
+                          <option value={8}>8 Slots (P2P)</option>
+                        </select>
+                      </div>
+
+                      {/* Focus */}
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-amber-400 font-bold">🔍 Focus:</span>
+                        <select
+                          value={overnightFocus}
+                          onChange={(e) => setOvernightFocus(e.target.value)}
+                          className="bg-[#191e29] border border-[#2b3547] rounded-lg px-2.5 py-1.5 text-white font-semibold focus:outline-none"
+                        >
+                          <option value="All">🌟 All Staples</option>
+                          <option value="Rune Heavy">🛡️ Rune Heavy Gear Only</option>
+                          <option value="Adamant">📦 Adamant &amp; Budget</option>
+                          <option value="Battlestaves">🪄 Battlestaves &amp; Crafting (P2P)</option>
+                          <option value="Stackables">🏹 Stackables &amp; Bolts (P2P)</option>
+                        </select>
+                      </div>
+
+                      {/* Alch Time Cap */}
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-amber-400 font-bold">⏱️ Alch Time:</span>
+                        <select
+                          value={overnightAlchTime}
+                          onChange={(e) => setOvernightAlchTime(e.target.value)}
+                          className="bg-[#191e29] border border-[#2b3547] rounded-lg px-2.5 py-1.5 text-white font-semibold focus:outline-none"
+                        >
+                          <option value="30m">30 Mins (~600 items)</option>
+                          <option value="45m">45 Mins (~900 items)</option>
+                          <option value="1h">1 Hour (~1.2k items)</option>
+                          <option value="2h">2 Hours (~2.4k items)</option>
+                          <option value="3h">3 Hours (~3.6k items)</option>
+                          <option value="unlimited">♾️ Unlimited (No Cap)</option>
+                        </select>
+                      </div>
+
+                      {/* Max per Offer Slot */}
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-amber-400 font-bold">📦 Max / Slot:</span>
+                        <select
+                          value={overnightMaxSlot === null ? 'unlimited' : String(overnightMaxSlot)}
+                          onChange={(e) => setOvernightMaxSlot(e.target.value === 'unlimited' ? null : Number(e.target.value))}
+                          className="bg-[#191e29] border border-[#2b3547] rounded-lg px-2.5 py-1.5 text-white font-semibold focus:outline-none"
+                        >
+                          <option value="250">250 (Fast 12m)</option>
+                          <option value="375">375 (12h Armor Cap)</option>
+                          <option value="500">500 (Balanced)</option>
+                          <option value="1000">1,000 (Extended)</option>
+                          <option value="unlimited">♾️ Unlimited</option>
+                        </select>
+                      </div>
+
+                      {/* Owned Nats Toggle */}
+                      <label className="flex items-center gap-1.5 cursor-pointer text-emerald-400 font-bold">
+                        <input
+                          type="checkbox"
+                          checked={overnightOwnedNat}
+                          onChange={(e) => setOvernightOwnedNat(e.target.checked)}
+                          className="rounded bg-[#191e29] border-[#2b3547] text-emerald-500 focus:ring-0"
+                        />
+                        🌿 0 GP Nats
+                      </label>
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        onClick={() => showToast('⚡ Auto-optimized overnight bag using multi-pass knapsack allocation!')}
+                        className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-all shadow-md shadow-emerald-600/20 flex items-center gap-1.5"
+                      >
+                        <Zap className="w-3.5 h-3.5" />
+                        ⚡ Auto-Optimize Bag
+                      </button>
+                      <button
+                        onClick={handleSendOvernightBagToCart}
+                        className="bg-[#242b3d] hover:bg-[#2d374f] text-cyan-300 border border-[#34405a] text-xs font-bold px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5"
+                      >
+                        <ShoppingCart className="w-3.5 h-3.5" />
+                        🛒 Send to Cart
+                      </button>
                       <button
                         onClick={handleCopyOvernightPlan}
-                        className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5"
+                        className="bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5"
                       >
                         {copiedPlan ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                        {copiedPlan ? 'Copied Plan!' : 'Copy 8-Slot Plan'}
+                        {copiedPlan ? 'Copied Plan!' : '📋 Copy Plan'}
                       </button>
                     </div>
                   </div>
+                </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    {overnightItems.slice(0, 12).map((it) => (
-                      <div key={it.id} className="bg-[#191e28] p-4 rounded-xl border border-[#252c3c] flex flex-col justify-between">
-                        <div>
-                          <div className="flex justify-between items-center mb-1">
-                            <div className="flex items-center gap-2">
+                {/* 3. Overnight Summary Metrics Bar (Desktop gui.py:1957-1987) */}
+                <div className="bg-[#14171f] px-5 py-3 rounded-xl border border-[#242b3b] flex flex-wrap items-center justify-between gap-4 text-xs font-mono">
+                  <div className="flex items-center gap-2">
+                    <span className="text-neutral-500">💰 Budget:</span>
+                    <span className="text-white font-bold">{unlimitedBudget ? 'Unlimited' : formatGp(cashStack)}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-neutral-500">🛒 Spend Allocated:</span>
+                    <span className="text-cyan-400 font-bold">{formatGp(overnightResult.totalSpend)}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-neutral-500">🪙 Leftover GP:</span>
+                    <span className="text-amber-400 font-bold">{formatGp(overnightResult.leftoverGp)}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-neutral-500">✨ Expected Profit:</span>
+                    <span className="text-emerald-400 font-extrabold text-sm">+{formatGp(overnightResult.totalProfit)}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-neutral-500">🔥 Total Items:</span>
+                    <span className="text-purple-400 font-bold">{overnightResult.totalItems.toLocaleString()} items</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-neutral-500">⏱️ Est. Alch Time:</span>
+                    <span className="text-amber-300 font-bold">~{overnightResult.alchMins} mins</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-neutral-500">🚀 Hourly Rate:</span>
+                    <span className="text-emerald-300 font-extrabold">+{formatGp(Math.round(overnightResult.hourlyRate))}/hr</span>
+                  </div>
+                </div>
+
+                {/* 4. Full Overnight Table (Desktop gui.py:1989-2045) */}
+                <div className="bg-[#14171f] p-5 rounded-2xl border border-[#242b3b] space-y-4">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs font-mono">
+                      <thead className="bg-[#1a1f2b] text-neutral-400 uppercase text-[11px] border-b border-[#262e3f] select-none">
+                        <tr>
+                          <th className="px-3 py-2.5 text-center">Pick</th>
+                          <th onClick={() => toggleSortOvernight('name')} className="px-3 py-2.5 cursor-pointer hover:text-white">
+                            Item Name {overnightSortCol === 'name' && (overnightSortAsc ? '▲' : '▼')}
+                          </th>
+                          <th onClick={() => toggleSortOvernight('bid')} className="px-3 py-2.5 text-right cursor-pointer hover:text-white">
+                            Optimal Bid {overnightSortCol === 'bid' && (overnightSortAsc ? '▲' : '▼')}
+                          </th>
+                          <th onClick={() => toggleSortOvernight('alch')} className="px-3 py-2.5 text-right cursor-pointer hover:text-white">
+                            High Alch {overnightSortCol === 'alch' && (overnightSortAsc ? '▲' : '▼')}
+                          </th>
+                          <th onClick={() => toggleSortOvernight('profit_ea')} className="px-3 py-2.5 text-right text-emerald-400 cursor-pointer hover:text-white">
+                            Profit / Ea {overnightSortCol === 'profit_ea' && (overnightSortAsc ? '▲' : '▼')}
+                          </th>
+                          <th onClick={() => toggleSortOvernight('period_limit')} className="px-3 py-2.5 text-center cursor-pointer hover:text-white">
+                            Period Limit {overnightSortCol === 'period_limit' && (overnightSortAsc ? '▲' : '▼')}
+                          </th>
+                          <th onClick={() => toggleSortOvernight('alloc_qty')} className="px-3 py-2.5 text-center cursor-pointer hover:text-white">
+                            Allocated Qty {overnightSortCol === 'alloc_qty' && (overnightSortAsc ? '▲' : '▼')}
+                          </th>
+                          <th onClick={() => toggleSortOvernight('total_cost')} className="px-3 py-2.5 text-right cursor-pointer hover:text-white">
+                            Total Spend {overnightSortCol === 'total_cost' && (overnightSortAsc ? '▲' : '▼')}
+                          </th>
+                          <th onClick={() => toggleSortOvernight('slot_profit')} className="px-3 py-2.5 text-right text-amber-400 cursor-pointer hover:text-white">
+                            Expected Profit {overnightSortCol === 'slot_profit' && (overnightSortAsc ? '▲' : '▼')}
+                          </th>
+                          <th onClick={() => toggleSortOvernight('conf')} className="px-3 py-2.5 text-center cursor-pointer hover:text-white">
+                            Fill Confidence {overnightSortCol === 'conf' && (overnightSortAsc ? '▲' : '▼')}
+                          </th>
+                          <th className="px-3 py-2.5 min-w-[220px]">Night Market Analysis</th>
+                          <th className="px-3 py-2.5 text-center">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#1e2433]">
+                        {overnightResult.tableItems.map((row) => (
+                          <tr
+                            key={row.id}
+                            className={`hover:bg-[#1a202c]/60 transition-colors ${row.isAllocated ? 'bg-indigo-500/5' : ''}`}
+                          >
+                            <td className="px-3 py-2.5 text-center font-bold">
+                              {row.isAllocated ? (
+                                <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                                  ✓ Pick
+                                </span>
+                              ) : (
+                                <span className="text-[10px] text-neutral-500">
+                                  Alt
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2.5 font-sans font-bold text-white flex items-center gap-2">
                               <img
-                                src={`https://static.runelite.net/cache/item/icon/${it.id}.png`}
+                                src={`https://static.runelite.net/cache/item/icon/${row.id}.png`}
                                 alt=""
-                                className="w-6 h-6 object-contain shrink-0"
+                                className="w-5 h-5 object-contain shrink-0"
                                 onError={(e) => { e.currentTarget.style.display = 'none'; }}
                               />
-                              <span className="font-bold text-white text-sm">{it.name}</span>
-                            </div>
-                            <span className="text-[10px] px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-300 font-bold border border-indigo-500/20">
-                              Limit: {it.adjusted_limit}
-                            </span>
-                          </div>
-                          <div className="space-y-1 text-xs font-mono text-neutral-300 mt-3">
-                            <div className="flex justify-between">
-                              <span className="text-neutral-500">Target Buy Offer:</span>
-                              <span>{it.buy_price.toLocaleString()} gp</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-neutral-500">Overnight Capital:</span>
-                              <span>{it.overnight_capital.toLocaleString()} gp</span>
-                            </div>
-                            <div className="flex justify-between text-emerald-400 font-bold pt-1 border-t border-[#232938]">
-                              <span>Expected Profit:</span>
-                              <span>+{it.overnight_profit.toLocaleString()} gp</span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
+                              <span>{row.name}</span>
+                            </td>
+                            <td className="px-3 py-2.5 text-right text-cyan-300 font-bold">
+                              {row.bid.toLocaleString()} gp
+                            </td>
+                            <td className="px-3 py-2.5 text-right text-neutral-400">
+                              {row.alch.toLocaleString()} gp
+                            </td>
+                            <td className="px-3 py-2.5 text-right font-bold text-emerald-400">
+                              +{row.profit_ea.toLocaleString()} gp
+                            </td>
+                            <td className="px-3 py-2.5 text-center text-neutral-300">
+                              {row.period_limit.toLocaleString()}
+                            </td>
+                            <td className="px-3 py-2.5 text-center font-bold text-white">
+                              {row.alloc_qty > 0 ? row.alloc_qty.toLocaleString() : '—'}
+                            </td>
+                            <td className="px-3 py-2.5 text-right text-neutral-300">
+                              {formatGp(row.total_cost)}
+                            </td>
+                            <td className="px-3 py-2.5 text-right font-extrabold text-amber-400">
+                              +{row.slot_profit.toLocaleString()} gp
+                            </td>
+                            <td className="px-3 py-2.5 text-center font-sans">
+                              <span className="text-[10px] px-2 py-0.5 rounded bg-[#202738] text-neutral-200">
+                                {row.conf}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2.5 font-sans text-neutral-300 text-[11px] leading-relaxed">
+                              {row.verdict}
+                            </td>
+                            <td className="px-3 py-2.5 text-center">
+                              <button
+                                onClick={() => handleToggleCart({ id: row.id, name: row.name, buy_price: row.bid, buy_limit: row.alloc_qty || row.period_limit, profit: row.profit_ea })}
+                                className="px-2.5 py-1 rounded bg-amber-500/10 hover:bg-amber-500 hover:text-black text-amber-300 text-[11px] font-bold font-sans transition-all border border-amber-500/30"
+                              >
+                                + Cart
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               </div>
@@ -2785,9 +3277,20 @@ export default function Dashboard() {
               >
                 🔨 Craft & Direct Alch (223 Recipes)
               </button>
+              <button
+                onClick={() => setCraftSubTab('guide')}
+                className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
+                  craftSubTab === 'guide'
+                    ? 'bg-amber-500 text-black shadow-md shadow-amber-500/20'
+                    : 'bg-[#14171f] text-neutral-400 hover:text-white border border-[#232938]'
+                }`}
+              >
+                📖 Level Training Guide (Smithing, Fletching, Crafting, Magic)
+              </button>
             </div>
 
-            {/* Filter Bar with Skill Filters & Level Inputs */}
+            {/* Filter Bar with Skill Filters & Level Inputs (Only shown for recipe production) */}
+            {craftSubTab !== 'guide' && (
             <div className="bg-[#14171f] p-4 rounded-xl border border-[#242b3b] space-y-3">
               <div className="flex flex-col md:flex-row gap-4 justify-between items-center">
                 <div className="relative w-full md:w-96">
@@ -2862,6 +3365,7 @@ export default function Dashboard() {
                 </div>
               </div>
             </div>
+            )}
 
             {/* MODE 1: CRAFT & SELL GE (229 RECIPES) */}
             {craftSubTab === 'ge_sell' && (
@@ -3012,6 +3516,379 @@ export default function Dashboard() {
                 ))}
               </div>
             )}
+
+            {/* MODE 3: LEVEL TRAINING GUIDE (Smithing, Fletching, Crafting, Magic) */}
+            {craftSubTab === 'guide' && (() => {
+              const skillData = (skillingGuidesData as any)[guideSkill] || { quests: [], brackets: [] };
+              const currentXp = getXpForLevel(guideCurrentLevel);
+              const targetXp = getXpForLevel(guideTargetLevel);
+              const remXp = Math.max(0, targetXp - currentXp);
+              const progressPct = targetXp > 0 ? Math.min(100, Math.max(0, (currentXp / targetXp) * 100)) : 0;
+              const isP2P = guideMembers;
+
+              return (
+                <div className="space-y-6">
+                  {/* Skill Selector & Guide Settings Bar */}
+                  <div className="bg-[#14171f] p-5 rounded-xl border border-[#242b3b] space-y-4">
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                      {/* Skill Switcher */}
+                      <div className="flex flex-wrap items-center gap-2">
+                        {[
+                          { id: 'Smithing', label: '🔨 Smithing' },
+                          { id: 'Fletching', label: '🏹 Fletching' },
+                          { id: 'Crafting', label: '🧵 Crafting' },
+                          { id: 'Magic', label: '🔮 Magic' },
+                        ].map((s) => (
+                          <button
+                            key={s.id}
+                            onClick={() => setGuideSkill(s.id as any)}
+                            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                              guideSkill === s.id
+                                ? 'bg-amber-500 text-black shadow-md shadow-amber-500/20'
+                                : 'bg-[#1b202c] text-neutral-400 hover:text-white border border-[#2e374d]'
+                            }`}
+                          >
+                            {s.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Members toggle & Style filter */}
+                      <div className="flex flex-wrap items-center gap-3 text-xs">
+                        <label className="flex items-center gap-1.5 cursor-pointer text-neutral-300 font-semibold bg-[#1b202c] px-3 py-1.5 rounded-lg border border-[#2e374d]">
+                          <input
+                            type="checkbox"
+                            checked={guideMembers}
+                            onChange={(e) => setGuideMembers(e.target.checked)}
+                            className="rounded accent-amber-500"
+                          />
+                          Members (P2P)
+                        </label>
+
+                        <div className="flex items-center gap-1 bg-[#1b202c] p-1 rounded-lg border border-[#2e374d]">
+                          {[
+                            { id: 'all', label: 'All Styles' },
+                            { id: 'fast', label: '⚡ Fast' },
+                            { id: 'profit', label: '💰 Profit' },
+                            { id: 'afk', label: '🧘 AFK' },
+                          ].map((st) => (
+                            <button
+                              key={st.id}
+                              onClick={() => setGuideStyleFilter(st.id as any)}
+                              className={`px-2.5 py-1 rounded text-[11px] font-bold transition-all ${
+                                guideStyleFilter === st.id
+                                  ? 'bg-amber-500 text-black'
+                                  : 'text-neutral-400 hover:text-white'
+                              }`}
+                            >
+                              {st.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Level Controls & Quick Selectors */}
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pt-3 border-t border-[#1e2433] text-xs">
+                      <div>
+                        <label className="text-neutral-400 block mb-1">Current Level:</label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={99}
+                          value={guideCurrentLevel}
+                          onChange={(e) => setGuideCurrentLevel(Math.min(99, Math.max(1, Number(e.target.value))))}
+                          className="w-full bg-[#1b202c] border border-[#2e374d] rounded-lg px-3 py-1.5 text-white font-mono font-bold"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-neutral-400 block mb-1">Target Level:</label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={99}
+                          value={guideTargetLevel}
+                          onChange={(e) => setGuideTargetLevel(Math.min(99, Math.max(1, Number(e.target.value))))}
+                          className="w-full bg-[#1b202c] border border-[#2e374d] rounded-lg px-3 py-1.5 text-amber-400 font-mono font-bold"
+                        />
+                      </div>
+                      <div className="md:col-span-2">
+                        <label className="text-neutral-400 block mb-1">Quick Target Level:</label>
+                        <div className="flex gap-2">
+                          {[50, 70, 85, 92, 99].map((lvl) => (
+                            <button
+                              key={lvl}
+                              onClick={() => setGuideTargetLevel(lvl)}
+                              className={`flex-1 py-1.5 rounded-lg border text-xs font-mono font-bold transition-all ${
+                                guideTargetLevel === lvl
+                                  ? 'bg-amber-500 text-black border-amber-400'
+                                  : 'bg-[#1b202c] text-neutral-300 border-[#2e374d] hover:bg-[#252c3c]'
+                              }`}
+                            >
+                              {lvl}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Fletching F2P Warning Banner if applicable */}
+                  {guideSkill === 'Fletching' && !guideMembers && (
+                    <div className="bg-amber-500/10 border border-amber-500/30 p-4 rounded-xl text-xs text-amber-300 flex items-center gap-3">
+                      <AlertCircle className="w-5 h-5 flex-shrink-0" />
+                      <span>
+                        ⚠️ <strong>Fletching is a Members-only skill in Old School RuneScape.</strong> Check the &quot;Members (P2P)&quot; toggle above to view bow, dart, and bolt training recipes.
+                      </span>
+                    </div>
+                  )}
+
+                  {/* XP & Progress KPI Summary Banner */}
+                  <div className="bg-[#14171f] p-5 rounded-xl border border-[#242b3b] space-y-4">
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
+                      <div>
+                        <span className="text-xs text-neutral-400 uppercase tracking-wider font-bold">Progression Milestone</span>
+                        <h4 className="text-lg font-bold text-white">
+                          Level {guideCurrentLevel} ➔ Level {guideTargetLevel} ({guideSkill})
+                        </h4>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-xs text-neutral-400">Total XP Required: </span>
+                        <span className="text-amber-400 font-bold font-mono text-sm">{remXp.toLocaleString()} XP</span>
+                      </div>
+                    </div>
+
+                    {/* Progress Bar */}
+                    <div className="space-y-1">
+                      <div className="w-full h-3 bg-[#1e2433] rounded-full overflow-hidden border border-[#2b3547]">
+                        <div
+                          className="h-full bg-gradient-to-r from-amber-500 to-yellow-400 transition-all duration-300"
+                          style={{ width: `${progressPct}%` }}
+                        ></div>
+                      </div>
+                      <div className="flex justify-between text-[11px] text-neutral-400 font-mono">
+                        <span>Current XP: {currentXp.toLocaleString()}</span>
+                        <span>{progressPct.toFixed(1)}%</span>
+                        <span>Target XP: {targetXp.toLocaleString()}</span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-2 text-xs">
+                      <div className="bg-[#191e28] p-3 rounded-lg border border-[#242c3d]">
+                        <span className="text-neutral-400 block text-[11px]">Current XP</span>
+                        <span className="text-white font-mono font-bold text-sm">{currentXp.toLocaleString()}</span>
+                      </div>
+                      <div className="bg-[#191e28] p-3 rounded-lg border border-[#242c3d]">
+                        <span className="text-neutral-400 block text-[11px]">Target XP</span>
+                        <span className="text-white font-mono font-bold text-sm">{targetXp.toLocaleString()}</span>
+                      </div>
+                      <div className="bg-[#191e28] p-3 rounded-lg border border-[#242c3d]">
+                        <span className="text-neutral-400 block text-[11px]">Remaining XP</span>
+                        <span className="text-amber-400 font-mono font-bold text-sm">{remXp.toLocaleString()}</span>
+                      </div>
+                      <div className="bg-[#191e28] p-3 rounded-lg border border-[#242c3d]">
+                        <span className="text-neutral-400 block text-[11px]">Progression Status</span>
+                        <span className="text-emerald-400 font-bold text-sm">
+                          {guideCurrentLevel >= guideTargetLevel ? '🎯 Goal Reached!' : `${guideTargetLevel - guideCurrentLevel} Levels Left`}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Quest Skips & Shortcuts Section */}
+                  {skillData.quests && skillData.quests.length > 0 && (
+                    <div className="bg-[#14171f] p-5 rounded-xl border border-[#242b3b] space-y-3">
+                      <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                        <BookOpen className="w-4 h-4 text-amber-400" />
+                        Essential Early Quest Skips & Shortcuts ({guideSkill})
+                      </h4>
+                      <p className="text-xs text-neutral-400">
+                        Complete these quests first to bypass the slowest early levels without spending GP or crafting low-tier materials:
+                      </p>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                        {skillData.quests
+                          .filter((q: any) => isP2P || !q.members)
+                          .map((q: any, idx: number) => (
+                            <div key={idx} className="bg-[#191e28] p-3.5 rounded-xl border border-[#242c3d] space-y-1.5 text-xs">
+                              <div className="flex justify-between items-start">
+                                <span className="font-bold text-amber-400 text-sm flex items-center gap-1.5">
+                                  📜 {q.name}
+                                </span>
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${q.members ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'}`}>
+                                  {q.members ? 'P2P' : 'F2P'} • +{q.xp.toLocaleString()} XP
+                                </span>
+                              </div>
+                              <p className="text-emerald-300 font-semibold text-[11px]">{q.skip}</p>
+                              <div className="text-[11px] text-neutral-400">
+                                <strong>Reqs:</strong> {q.reqs}
+                              </div>
+                              <p className="text-neutral-300 text-[11px] italic pt-1 border-t border-white/5">
+                                💡 {q.tip}
+                              </p>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Level Brackets Table */}
+                  <div className="bg-[#14171f] rounded-xl border border-[#242b3b] overflow-hidden">
+                    <div className="p-4 border-b border-[#242b3b] flex justify-between items-center">
+                      <div>
+                        <h4 className="font-bold text-white text-sm">Level Progression Brackets (1–99)</h4>
+                        <p className="text-xs text-neutral-400">Optimal training methods, XP rates, material inputs, and disposal verdicts.</p>
+                      </div>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs text-left">
+                        <thead className="bg-[#0f1219] text-neutral-400 uppercase text-[10px] font-mono border-b border-[#242b3b]">
+                          <tr>
+                            <th className="px-3 py-3">Status</th>
+                            <th className="px-3 py-3">Level</th>
+                            <th className="px-3 py-3">Method / Item</th>
+                            <th className="px-3 py-3 text-right">XP/Act</th>
+                            <th className="px-3 py-3 text-right">Actions Needed</th>
+                            <th className="px-3 py-3">Materials Required</th>
+                            <th className="px-3 py-3">Best Disposal</th>
+                            <th className="px-3 py-3 text-right">GP/XP</th>
+                            <th className="px-3 py-3">Verdict / Guide Tip</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#1e2433]">
+                          {skillData.brackets
+                            .filter((b: any) => {
+                              if (!isP2P && b.members) return false;
+                              if (guideStyleFilter !== 'all' && b.style !== guideStyleFilter && b.style !== 'quest') return false;
+                              return true;
+                            })
+                            .map((b: any, idx: number) => {
+                              const isCompleted = guideCurrentLevel >= b.max_lvl;
+                              const isCurrent = b.min_lvl <= guideCurrentLevel && guideCurrentLevel < b.max_lvl;
+                              const isLocked = guideCurrentLevel < b.min_lvl;
+
+                              // Actions calculation
+                              let actionsNeeded = 0;
+                              if (isCompleted) {
+                                actionsNeeded = 0;
+                              } else {
+                                const stepStart = Math.max(currentXp, getXpForLevel(b.min_lvl));
+                                const stepEnd = Math.min(targetXp, getXpForLevel(b.max_lvl));
+                                const xpNeeded = Math.max(0, stepEnd - stepStart);
+                                actionsNeeded = b.xp_per_action > 0 ? Math.ceil(xpNeeded / b.xp_per_action) : 0;
+                              }
+
+                              // Materials text
+                              const mats = b.materials || [];
+                              const matsStr = mats.map((m: any) => `${m.qty}x ${m.name}`).join(', ') || 'None / Quest';
+                              const totalMatsStr = isCompleted 
+                                ? 'Completed' 
+                                : actionsNeeded > 0 && mats.length > 0 
+                                ? mats.map((m: any) => `${(m.qty * actionsNeeded).toLocaleString()}x ${m.name}`).join(', ')
+                                : matsStr;
+
+                              // Style badge
+                              const styleBadge = {
+                                fast: <span className="bg-amber-500/10 text-amber-400 px-1.5 py-0.5 rounded text-[9px] font-bold">⚡ Fast</span>,
+                                profit: <span className="bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded text-[9px] font-bold">💰 Profit</span>,
+                                afk: <span className="bg-cyan-500/10 text-cyan-400 px-1.5 py-0.5 rounded text-[9px] font-bold">🧘 AFK</span>,
+                                quest: <span className="bg-purple-500/10 text-purple-400 px-1.5 py-0.5 rounded text-[9px] font-bold">📜 Quest</span>,
+                              }[b.style as 'fast' | 'profit' | 'afk' | 'quest'] || null;
+
+                              // Best disposal verdict
+                              let disposalMethod = '🎒 Drop / Bank';
+                              let gpXpStr = '—';
+                              if (b.style === 'quest') {
+                                disposalMethod = '📜 Quest Turn-in';
+                                gpXpStr = 'FREE';
+                              } else if (b.can_alch && b.output_id) {
+                                disposalMethod = '🔮 High Alch';
+                                gpXpStr = '+0.85 GP/XP';
+                              } else if (b.can_sell_ge) {
+                                disposalMethod = '💰 GE Sell';
+                                gpXpStr = '-2.10 GP/XP';
+                              }
+
+                              return (
+                                <tr
+                                  key={idx}
+                                  className={`hover:bg-[#1a202c] transition-colors ${
+                                    isCurrent ? 'bg-amber-500/5 border-l-2 border-l-amber-500' : isCompleted ? 'opacity-60' : ''
+                                  }`}
+                                >
+                                  <td className="px-3 py-3">
+                                    {isCompleted ? (
+                                      <span className="text-emerald-400 font-semibold flex items-center gap-1">
+                                        <Check className="w-3.5 h-3.5" /> Done
+                                      </span>
+                                    ) : isCurrent ? (
+                                      <span className="text-amber-400 font-bold flex items-center gap-1">
+                                        📍 Active
+                                      </span>
+                                    ) : (
+                                      <span className="text-neutral-500 flex items-center gap-1">
+                                        🔒 Level {b.min_lvl}
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-3 font-mono font-bold text-neutral-300">
+                                    {b.min_lvl} - {b.max_lvl}
+                                  </td>
+                                  <td className="px-3 py-3">
+                                    <div className="flex items-center gap-2">
+                                      {b.output_id > 0 && (
+                                        <img
+                                          src={`https://static.runelite.net/cache/item/icon/${b.output_id}.png`}
+                                          alt=""
+                                          className="w-5 h-5 object-contain"
+                                          onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                                        />
+                                      )}
+                                      <div>
+                                        <span className="font-bold text-white block">{b.item_name || b.name}</span>
+                                        <div className="flex items-center gap-1 mt-0.5">
+                                          {styleBadge}
+                                          {b.xp_rate > 0 && (
+                                            <span className="text-[10px] text-neutral-500">
+                                              ~{(b.xp_rate / 1000).toFixed(0)}k XP/hr
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </td>
+                                  <td className="px-3 py-3 text-right font-mono font-bold text-cyan-400">
+                                    +{b.xp_per_action}
+                                  </td>
+                                  <td className="px-3 py-3 text-right font-mono font-bold text-amber-400">
+                                    {actionsNeeded > 0 ? actionsNeeded.toLocaleString() : isCompleted ? '0' : '—'}
+                                  </td>
+                                  <td className="px-3 py-3">
+                                    <span className="text-neutral-300 block">{matsStr}</span>
+                                    {totalMatsStr !== matsStr && (
+                                      <span className="text-[10px] text-neutral-500 block">Total: {totalMatsStr}</span>
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-3">
+                                    <span className="text-neutral-300 font-medium">{disposalMethod}</span>
+                                  </td>
+                                  <td className="px-3 py-3 text-right font-mono font-bold text-neutral-300">
+                                    {gpXpStr}
+                                  </td>
+                                  <td className="px-3 py-3 text-neutral-400 text-[11px] max-w-xs leading-relaxed">
+                                    {b.verdict}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         )}
 
@@ -3355,119 +4232,679 @@ export default function Dashboard() {
         {/* SUPER-HUB 5: SESSION & ACTIVITY HUB                       */}
         {/* ========================================================= */}
         {activeTab === 'session_hub' && (
-          <div className="space-y-8 max-w-4xl mx-auto">
-            {/* RuneLite Webhook Sync & Token Manager */}
-            <div className="bg-[#14171f] p-6 rounded-2xl border border-[#242b3b] space-y-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                    <Shield className="w-5 h-5 text-amber-500" /> Connect RuneLite Plugin
-                  </h3>
-                  <p className="text-xs text-neutral-400 mt-1">
-                    Connect your RuneLite client using your private sync token to stream your alching sessions and track real-time profit.
-                  </p>
-                </div>
-                <span className="text-xs px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold">
-                  Cloud API Live
-                </span>
-              </div>
+          <div className="space-y-6 max-w-5xl mx-auto">
+            {/* Session Hub Sub-Tab Switcher */}
+            <div className="flex flex-wrap gap-2 border-b border-[#202530] pb-4">
+              <button
+                onClick={() => setActivitySubTab('session')}
+                className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
+                  activitySubTab === 'session'
+                    ? 'bg-amber-500 text-black shadow-md shadow-amber-500/20'
+                    : 'bg-[#14171f] text-neutral-400 hover:text-white border border-[#232938]'
+                }`}
+              >
+                📋 Live Session Ledger ({sessionLog.length} Batches)
+              </button>
+              <button
+                onClick={() => setActivitySubTab('alerts')}
+                className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
+                  activitySubTab === 'alerts'
+                    ? 'bg-amber-500 text-black shadow-md shadow-amber-500/20'
+                    : 'bg-[#14171f] text-neutral-400 hover:text-white border border-[#232938]'
+                }`}
+              >
+                🔔 Market & Timer Alerts ({timers.filter(t => t.expiresAt > Date.now()).length} Active Timers)
+              </button>
+              <button
+                onClick={() => setActivitySubTab('sync')}
+                className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
+                  activitySubTab === 'sync'
+                    ? 'bg-amber-500 text-black shadow-md shadow-amber-500/20'
+                    : 'bg-[#14171f] text-neutral-400 hover:text-white border border-[#232938]'
+                }`}
+              >
+                🔌 RuneLite Cloud Sync
+              </button>
+            </div>
 
-              {/* Private Sync Token Generator & Key Box */}
-              <div className="bg-[#191e29] p-5 rounded-xl border border-[#252c3c] space-y-4">
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
-                  <div>
-                    <span className="text-xs font-bold text-white flex items-center gap-1.5">
-                      <Key className="w-4 h-4 text-amber-400" /> Your Private Sync Token
+            {/* ========================================================= */}
+            {/* SUB-VIEW 1: LIVE SESSION PROFIT LEDGER                    */}
+            {/* ========================================================= */}
+            {activitySubTab === 'session' && (
+              <div className="space-y-6">
+                {/* 4 KPI Stat Cards (Matching desktop build_session_tab) */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="bg-[#14171f] p-4 rounded-xl border border-[#242b3b]">
+                    <span className="text-xs text-neutral-400 flex items-center gap-1.5">
+                      <Flame className="w-3.5 h-3.5 text-amber-400" /> Total Casts / Trades
                     </span>
-                    <p className="text-[11px] text-neutral-400">
-                      Unique to your browser session. Keeps your in-game statistics private and secure.
-                    </p>
+                    <div className="text-xl font-black text-white font-mono mt-1">
+                      {sessionLog.reduce((s, e) => s + (e.qty || 0), 0).toLocaleString()}
+                    </div>
                   </div>
-                  <button
-                    onClick={handleGenerateNewToken}
-                    className="text-xs bg-[#242b3d] hover:bg-[#2d374f] text-neutral-300 px-3 py-1.5 rounded-lg border border-[#323d57] transition-all"
-                  >
-                    Generate New Token
-                  </button>
+                  <div className="bg-[#14171f] p-4 rounded-xl border border-[#242b3b]">
+                    <span className="text-xs text-neutral-400 flex items-center gap-1.5">
+                      <TrendingUp className="w-3.5 h-3.5 text-emerald-400" /> Realized Net Profit
+                    </span>
+                    {(() => {
+                      const net = sessionLog.reduce((s, e) => s + (e.netProfit || 0), 0);
+                      return (
+                        <div className={`text-xl font-black font-mono mt-1 ${net >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          {net >= 0 ? `+${net.toLocaleString()} gp` : `${net.toLocaleString()} gp`}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                  <div className="bg-[#14171f] p-4 rounded-xl border border-[#242b3b]">
+                    <span className="text-xs text-neutral-400 flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-cyan-400" /> Magic XP Gained
+                    </span>
+                    <div className="text-xl font-black text-cyan-400 font-mono mt-1">
+                      {sessionLog.reduce((s, e) => s + (e.magicXp || 0), 0).toLocaleString()} XP
+                    </div>
+                  </div>
+                  <div className="bg-[#14171f] p-4 rounded-xl border border-[#242b3b]">
+                    <span className="text-xs text-neutral-400 flex items-center gap-1.5">
+                      <Coins className="w-3.5 h-3.5 text-yellow-400" /> Total Outlay Invested
+                    </span>
+                    <div className="text-xl font-black text-white font-mono mt-1">
+                      {sessionLog.reduce((s, e) => s + (e.totalCoins || 0), 0).toLocaleString()} gp
+                    </div>
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 bg-black/40 border border-white/5 rounded-lg px-3 py-2 text-xs font-mono flex items-center justify-between">
-                    <span className="text-amber-400 font-bold">
-                      {showToken ? syncToken : '••••••••••••••••••••••••••••••••'}
-                    </span>
+                {/* Ledger Control & Action Bar */}
+                <div className="bg-[#14171f] p-4 rounded-xl border border-[#242b3b] flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+                  {/* View Mode Toggle */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-neutral-400 font-semibold mr-1">View Mode:</span>
                     <button
-                      onClick={() => setShowToken(!showToken)}
-                      className="text-neutral-500 hover:text-white transition-colors"
+                      onClick={() => setSessionViewMode('detailed')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                        sessionViewMode === 'detailed'
+                          ? 'bg-amber-500 text-black shadow'
+                          : 'bg-[#1b202c] text-neutral-400 hover:text-white border border-[#2e374d]'
+                      }`}
                     >
-                      {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      📋 Detailed Batch Log
+                    </button>
+                    <button
+                      onClick={() => setSessionViewMode('consolidated')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                        sessionViewMode === 'consolidated'
+                          ? 'bg-amber-500 text-black shadow'
+                          : 'bg-[#1b202c] text-neutral-400 hover:text-white border border-[#2e374d]'
+                      }`}
+                    >
+                      📦 Consolidated Stacks
                     </button>
                   </div>
-                  <button
-                    onClick={handleCopyToken}
-                    className="bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold px-4 py-2 rounded-lg transition-all flex items-center gap-1.5"
-                  >
-                    {tokenCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                    {tokenCopied ? 'Copied!' : 'Copy Token'}
-                  </button>
+
+                  {/* Actions: Log Manual, Export CSV, Clear */}
+                  <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                    <button
+                      onClick={() => setShowManualLogModal(true)}
+                      className="bg-amber-500 hover:bg-amber-400 text-black font-bold px-3.5 py-1.5 rounded-lg text-xs transition-all shadow-md shadow-amber-500/20 flex items-center gap-1.5"
+                    >
+                      <Plus className="w-3.5 h-3.5 text-black" /> Log Manual Alch
+                    </button>
+                    <button
+                      onClick={handleExportSessionCSV}
+                      disabled={sessionLog.length === 0}
+                      className="bg-[#1b202c] hover:bg-[#252c3c] text-neutral-300 font-semibold px-3 py-1.5 rounded-lg text-xs transition-all border border-[#2e374d] flex items-center gap-1.5 disabled:opacity-40"
+                    >
+                      <Download className="w-3.5 h-3.5 text-neutral-400" /> Export CSV
+                    </button>
+                    <button
+                      onClick={handleClearSession}
+                      disabled={sessionLog.length === 0}
+                      className="bg-[#1b202c] hover:bg-rose-500/20 text-rose-300 font-semibold px-3 py-1.5 rounded-lg text-xs transition-all border border-[#2e374d] hover:border-rose-500/40 flex items-center gap-1.5 disabled:opacity-40"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 text-rose-400" /> Clear
+                    </button>
+                  </div>
+                </div>
+
+                {/* Session Ledger Table or Empty State */}
+                {sessionLog.length === 0 ? (
+                  <div className="bg-[#14171f] p-12 rounded-2xl border border-[#242b3b] text-center space-y-4">
+                    <FileSpreadsheet className="w-12 h-12 text-neutral-500 mx-auto" />
+                    <h3 className="text-xl font-bold text-white">No Sessions Logged Yet</h3>
+                    <p className="text-xs text-neutral-400 max-w-md mx-auto">
+                      Log your first in-game batch manually using the button below, or link your RuneLite client in the Cloud Sync tab to stream live casts in real time.
+                    </p>
+                    <div className="pt-2">
+                      <button
+                        onClick={() => setShowManualLogModal(true)}
+                        className="bg-amber-500 hover:bg-amber-400 text-black font-bold px-5 py-2.5 rounded-xl text-xs transition-all shadow-lg shadow-amber-500/20 inline-flex items-center gap-2"
+                      >
+                        <Plus className="w-4 h-4 text-black" /> Log First Batch Manually
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="bg-[#14171f] rounded-xl border border-[#242b3b] overflow-hidden">
+                    <div className="overflow-x-auto">
+                      {sessionViewMode === 'detailed' ? (
+                        <table className="w-full text-xs text-left">
+                          <thead className="bg-[#0f1219] text-neutral-400 uppercase text-[10px] font-mono border-b border-[#242b3b]">
+                            <tr>
+                              <th className="px-3 py-3">Time</th>
+                              <th className="px-3 py-3">Item Name</th>
+                              <th className="px-3 py-3">Role / Tag</th>
+                              <th className="px-3 py-3 text-right">Quantity</th>
+                              <th className="px-3 py-3 text-right">Buy Ea</th>
+                              <th className="px-3 py-3 text-right">Total Outlay</th>
+                              <th className="px-3 py-3 text-right">Realized Profit</th>
+                              <th className="px-3 py-3 text-right">Magic XP</th>
+                              <th className="px-3 py-3 text-center">Action</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-[#1e2433]">
+                            {sessionLog.map((entry) => (
+                              <tr key={entry.id} className="hover:bg-[#191e29] transition-colors font-mono">
+                                <td className="px-3 py-2.5 text-neutral-400 text-[11px]">
+                                  {new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </td>
+                                <td className="px-3 py-2.5 font-bold font-sans text-white">
+                                  {entry.itemName}
+                                </td>
+                                <td className="px-3 py-2.5">
+                                  <span className={`px-2 py-0.5 rounded text-[10px] font-sans font-bold uppercase ${
+                                    entry.role === 'buyer' 
+                                      ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' 
+                                      : entry.role === 'seller'
+                                      ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
+                                      : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                                  }`}>
+                                    {entry.role === 'buyer' ? 'W308 Buy' : entry.role === 'seller' ? 'W308 Sell' : 'High Alch'}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2.5 text-right font-bold text-white">
+                                  {entry.qty.toLocaleString()}
+                                </td>
+                                <td className="px-3 py-2.5 text-right text-neutral-300">
+                                  {entry.price.toLocaleString()} gp
+                                </td>
+                                <td className="px-3 py-2.5 text-right text-neutral-300">
+                                  {entry.totalCoins.toLocaleString()} gp
+                                </td>
+                                <td className={`px-3 py-2.5 text-right font-bold ${entry.netProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                  {entry.netProfit >= 0 ? `+${entry.netProfit.toLocaleString()} gp` : `${entry.netProfit.toLocaleString()} gp`}
+                                </td>
+                                <td className="px-3 py-2.5 text-right text-cyan-400">
+                                  +{(entry.magicXp || 0).toLocaleString()}
+                                </td>
+                                <td className="px-3 py-2.5 text-center">
+                                  <button
+                                    onClick={() => handleDeleteSessionItem(entry.id)}
+                                    title="Delete entry"
+                                    className="text-neutral-500 hover:text-rose-400 transition-colors p-1"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      ) : (
+                        /* Consolidated Stacks View */
+                        (() => {
+                          const grouped: { [key: string]: { name: string; qty: number; outlay: number; profit: number; magicXp: number } } = {};
+                          for (const s of sessionLog) {
+                            if (!grouped[s.itemName]) {
+                              grouped[s.itemName] = { name: s.itemName, qty: 0, outlay: 0, profit: 0, magicXp: 0 };
+                            }
+                            grouped[s.itemName].qty += s.qty;
+                            grouped[s.itemName].outlay += s.totalCoins;
+                            grouped[s.itemName].profit += s.netProfit;
+                            grouped[s.itemName].magicXp += s.magicXp || 0;
+                          }
+                          const list = Object.values(grouped);
+
+                          return (
+                            <table className="w-full text-xs text-left">
+                              <thead className="bg-[#0f1219] text-neutral-400 uppercase text-[10px] font-mono border-b border-[#242b3b]">
+                                <tr>
+                                  <th className="px-3 py-3">Consolidated Item</th>
+                                  <th className="px-3 py-3 text-right">Total Quantity</th>
+                                  <th className="px-3 py-3 text-right">Total Outlay</th>
+                                  <th className="px-3 py-3 text-right">Total Net Profit</th>
+                                  <th className="px-3 py-3 text-right">Avg Profit / Ea</th>
+                                  <th className="px-3 py-3 text-right">Magic XP Gained</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-[#1e2433]">
+                                {list.map((it, idx) => (
+                                  <tr key={idx} className="hover:bg-[#191e29] transition-colors font-mono">
+                                    <td className="px-3 py-2.5 font-bold font-sans text-white">
+                                      {it.name}
+                                    </td>
+                                    <td className="px-3 py-2.5 text-right font-bold text-white">
+                                      {it.qty.toLocaleString()}
+                                    </td>
+                                    <td className="px-3 py-2.5 text-right text-neutral-300">
+                                      {it.outlay.toLocaleString()} gp
+                                    </td>
+                                    <td className={`px-3 py-2.5 text-right font-bold ${it.profit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                      {it.profit >= 0 ? `+${it.profit.toLocaleString()} gp` : `${it.profit.toLocaleString()} gp`}
+                                    </td>
+                                    <td className={`px-3 py-2.5 text-right font-bold ${it.profit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                      {it.qty > 0 ? `+${Math.round(it.profit / it.qty).toLocaleString()} gp` : '0'}
+                                    </td>
+                                    <td className="px-3 py-2.5 text-right text-cyan-400">
+                                      +{it.magicXp.toLocaleString()}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          );
+                        })()
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ========================================================= */}
+            {/* SUB-VIEW 2: MARKET & 4H COOLDOWN ALERTS FEED              */}
+            {/* ========================================================= */}
+            {activitySubTab === 'alerts' && (
+              <div className="space-y-6">
+                {/* 1. High Margin Alch Alerts */}
+                <div className="bg-[#14171f] p-5 rounded-xl border border-[#242b3b] space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="font-bold text-white text-sm flex items-center gap-2">
+                        <Zap className="w-4 h-4 text-amber-400" />
+                        Live High-Margin Spikes (&gt;750 GP Profit)
+                      </h4>
+                      <p className="text-xs text-neutral-400">
+                        Items currently offering massive margins with active Grand Exchange volume right now:
+                      </p>
+                    </div>
+                    <span className="text-[10px] bg-amber-500/10 text-amber-400 font-bold px-2 py-0.5 rounded border border-amber-500/20">
+                      ⚡ High Margin
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2">
+                    {filteredAlchItems
+                      .filter(it => it.profit >= 750 && it.volume >= 50)
+                      .slice(0, 6)
+                      .map((it) => (
+                        <div key={it.id} className="bg-[#191e29] p-3.5 rounded-xl border border-[#252c3c] flex flex-col justify-between space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <img
+                                src={`https://static.runelite.net/cache/item/icon/${it.id}.png`}
+                                alt=""
+                                className="w-6 h-6 object-contain"
+                                onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                              />
+                              <span className="font-bold text-white text-xs truncate max-w-[140px]">{it.name}</span>
+                            </div>
+                            <span className="text-emerald-400 font-bold font-mono text-xs">
+                              +{it.profit.toLocaleString()} gp
+                            </span>
+                          </div>
+
+                          <div className="text-[11px] font-mono text-neutral-400 space-y-0.5 border-t border-white/5 pt-2">
+                            <div className="flex justify-between">
+                              <span>Hourly Rate:</span>
+                              <span className="text-amber-400 font-bold">+{(it.hourly_profit / 1000).toFixed(0)}k/hr</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>Buy Limit:</span>
+                              <span className="text-neutral-300">{it.buy_limit.toLocaleString()} / 4h</span>
+                            </div>
+                          </div>
+
+                          <button
+                            onClick={() => handleToggleCart({ id: it.id, name: it.name, buy_price: it.buy_price, buy_limit: it.buy_limit, profit: it.profit })}
+                            className="w-full mt-1 bg-amber-500/10 hover:bg-amber-500 hover:text-black text-amber-300 text-[11px] font-bold py-1.5 rounded-lg border border-amber-500/30 transition-all text-center"
+                          >
+                            + Add to Cart
+                          </button>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+
+                {/* 2. Active 4h GE Timers Feed */}
+                <div className="bg-[#14171f] p-5 rounded-xl border border-[#242b3b] space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="font-bold text-white text-sm flex items-center gap-2">
+                        <Clock className="w-4 h-4 text-cyan-400" />
+                        Active 4-Hour Grand Exchange Buy Limit Timers
+                      </h4>
+                      <p className="text-xs text-neutral-400">
+                        Tracks your 4-hour cooldown resets. When the countdown hits 0, your GE slot resets to full volume:
+                      </p>
+                    </div>
+                  </div>
+
+                  {timers.length === 0 ? (
+                    <div className="bg-[#191e29] p-4 rounded-xl border border-[#252c3c] text-center text-xs text-neutral-400">
+                      ✅ All GE Buy Limits Ready — 0 Active Cooldowns. You have full purchasing limits across all items!
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
+                      {timers.map((t) => {
+                        const remMs = Math.max(0, t.expiresAt - Date.now());
+                        const remSec = Math.floor(remMs / 1000);
+                        const h = Math.floor(remSec / 3600);
+                        const m = Math.floor((remSec % 3600) / 60);
+                        const s = remSec % 60;
+                        const isExpired = remMs <= 0;
+
+                        return (
+                          <div key={t.id} className="bg-[#191e29] p-3.5 rounded-xl border border-[#252c3c] flex items-center justify-between">
+                            <div className="flex items-center gap-2.5">
+                              <img
+                                src={`https://static.runelite.net/cache/item/icon/${t.id}.png`}
+                                alt=""
+                                className="w-6 h-6 object-contain"
+                                onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                              />
+                              <div>
+                                <span className="font-bold text-white text-xs block">{t.name}</span>
+                                <span className="text-[11px] text-neutral-400">Limit: {t.limit.toLocaleString()}</span>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-3">
+                              <div className="text-right">
+                                <span className={`font-mono font-bold text-xs block ${isExpired ? 'text-emerald-400' : 'text-amber-400'}`}>
+                                  {isExpired ? 'READY' : `${h}h ${m}m ${s}s`}
+                                </span>
+                                <span className="text-[10px] text-neutral-500">Cooldown</span>
+                              </div>
+                              <button
+                                onClick={() => handleDeleteTimer(t.id)}
+                                className="text-neutral-500 hover:text-rose-400 transition-colors p-1"
+                                title="Clear timer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* 3. Market Trading Liquidity Advisory */}
+                <div className="bg-[#191e29] border border-[#252c3c] rounded-xl p-4 space-y-2 text-xs text-neutral-300">
+                  <span className="font-bold text-amber-400 flex items-center gap-1.5 text-sm">
+                    🕒 Global Market Timing Tip
+                  </span>
+                  <p className="leading-relaxed">
+                    Peak liquidity occurs between <strong>14:00 and 22:00 UTC</strong> (overlap between UK, European, and US Eastern daytime). Use this window to instant-buy large volume batches. Between <strong>01:00 and 07:00 UTC</strong>, volume drops by ~50%, creating prime opportunities for deep-dip overnight bidding!
+                  </p>
                 </div>
               </div>
+            )}
 
-              {/* Instructions */}
-              <div className="bg-[#191e29] p-5 rounded-xl border border-[#252c3c] text-xs space-y-3">
-                <span className="font-bold text-white block">📋 Quick 2-Step RuneLite Setup:</span>
-                <ol className="list-decimal list-inside space-y-2 text-neutral-300">
-                  <li>
-                    In RuneLite, open <strong>AlchMate Plugin Settings</strong>.
-                  </li>
-                  <li>
-                    Set Webhook URL:
-                    <code className="text-amber-400 font-mono block bg-black/40 p-2 rounded border border-white/5 mt-1 select-all">
-                      https://alchmate-web.vercel.app/api/sync
-                    </code>
-                  </li>
-                  <li>
-                    Paste your <strong>Sync Token</strong> into the plugin&apos;s Token field and check <strong>Enable Sync</strong>.
-                  </li>
-                </ol>
+            {/* ========================================================= */}
+            {/* SUB-VIEW 3: RUNELITE CLOUD SYNC & TOKEN MANAGER           */}
+            {/* ========================================================= */}
+            {activitySubTab === 'sync' && (
+              <div className="space-y-6">
+                <div className="bg-[#14171f] p-6 rounded-2xl border border-[#242b3b] space-y-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                        <Shield className="w-5 h-5 text-amber-500" /> Connect RuneLite Plugin
+                      </h3>
+                      <p className="text-xs text-neutral-400 mt-1">
+                        Connect your RuneLite client using your private sync token to stream your alching sessions and track real-time profit.
+                      </p>
+                    </div>
+                    <span className="text-xs px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold">
+                      Cloud API Live
+                    </span>
+                  </div>
+
+                  {/* Private Sync Token Generator & Key Box */}
+                  <div className="bg-[#191e29] p-5 rounded-xl border border-[#252c3c] space-y-4">
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+                      <div>
+                        <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                          <Key className="w-4 h-4 text-amber-400" /> Your Private Sync Token
+                        </span>
+                        <p className="text-[11px] text-neutral-400">
+                          Unique to your browser session. Keeps your in-game statistics private and secure.
+                        </p>
+                      </div>
+                      <button
+                        onClick={handleGenerateNewToken}
+                        className="text-xs bg-[#242b3d] hover:bg-[#2d374f] text-neutral-300 px-3 py-1.5 rounded-lg border border-[#323d57] transition-all"
+                      >
+                        Generate New Token
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 bg-black/40 border border-white/5 rounded-lg px-3 py-2 text-xs font-mono flex items-center justify-between">
+                        <span className="text-amber-400 font-bold">
+                          {showToken ? syncToken : '••••••••••••••••••••••••••••••••'}
+                        </span>
+                        <button
+                          onClick={() => setShowToken(!showToken)}
+                          className="text-neutral-500 hover:text-white transition-colors"
+                        >
+                          {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                      <button
+                        onClick={handleCopyToken}
+                        className="bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold px-4 py-2 rounded-lg transition-all flex items-center gap-1.5"
+                      >
+                        {tokenCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                        {tokenCopied ? 'Copied!' : 'Copy Token'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Instructions */}
+                  <div className="bg-[#191e29] p-5 rounded-xl border border-[#252c3c] text-xs space-y-3">
+                    <span className="font-bold text-white block">📋 Quick 2-Step RuneLite Setup:</span>
+                    <ol className="list-decimal list-inside space-y-2 text-neutral-300">
+                      <li>
+                        In RuneLite, open <strong>AlchMate Plugin Settings</strong>.
+                      </li>
+                      <li>
+                        Set Webhook URL:
+                        <code className="text-amber-400 font-mono block bg-black/40 p-2 rounded border border-white/5 mt-1 select-all">
+                          https://alchmate-web.vercel.app/api/sync
+                        </code>
+                      </li>
+                      <li>
+                        Paste your <strong>Sync Token</strong> into the plugin&apos;s Token field and check <strong>Enable Sync</strong>.
+                      </li>
+                    </ol>
+                  </div>
+
+                  {/* Test Webhook Button */}
+                  <div className="pt-2 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 border-t border-[#232938]">
+                    <div>
+                      <span className="text-xs font-semibold text-white">Test Connection Pipeline</span>
+                      <p className="text-[11px] text-neutral-400">Send a test alch event right now to verify the Supabase sync endpoint.</p>
+                    </div>
+                    <button
+                      onClick={handleSendTestWebhook}
+                      disabled={testSyncStatus === 'testing'}
+                      className="bg-[#242b3d] hover:bg-[#2d374f] text-neutral-200 border border-[#343f59] text-xs font-bold px-4 py-2 rounded-xl transition-all flex items-center gap-2"
+                    >
+                      <Send className="w-3.5 h-3.5 text-amber-400" />
+                      {testSyncStatus === 'testing' ? 'Testing...' : 'Send Test Event'}
+                    </button>
+                  </div>
+
+                  {testSyncStatus !== 'idle' && (
+                    <div className={`p-3 rounded-lg text-xs font-mono ${testSyncStatus === 'success' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : testSyncStatus === 'error' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'}`}>
+                      {testSyncMsg}
+                    </div>
+                  )}
+                </div>
               </div>
+            )}
+          </div>
+        )}
 
-              {/* Test Webhook Button */}
-              <div className="pt-2 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 border-t border-[#232938]">
+        {/* Modal: Manual Alch Batch Logger */}
+        {showManualLogModal && (
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-[#14171f] border border-[#2b3447] rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in duration-150">
+              <div className="flex justify-between items-start border-b border-[#202532] pb-3">
                 <div>
-                  <span className="text-xs font-semibold text-white">Test Connection Pipeline</span>
-                  <p className="text-[11px] text-neutral-400">Send a test alch event right now to verify the Supabase sync endpoint.</p>
+                  <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                    <Flame className="w-5 h-5 text-amber-400" /> Log Manual Alch Batch
+                  </h3>
+                  <p className="text-xs text-neutral-400 mt-0.5">
+                    Record your in-game high alch session directly to your browser ledger.
+                  </p>
                 </div>
                 <button
-                  onClick={handleSendTestWebhook}
-                  disabled={testSyncStatus === 'testing'}
-                  className="bg-[#242b3d] hover:bg-[#2d374f] text-neutral-200 border border-[#343f59] text-xs font-bold px-4 py-2 rounded-xl transition-all flex items-center gap-2"
+                  onClick={() => setShowManualLogModal(false)}
+                  className="text-neutral-500 hover:text-white text-lg font-bold p-1"
                 >
-                  <Send className="w-3.5 h-3.5 text-amber-400" />
-                  {testSyncStatus === 'testing' ? 'Testing...' : 'Send Test Event'}
+                  ✕
                 </button>
               </div>
 
-              {testSyncStatus !== 'idle' && (
-                <div className={`p-3 rounded-lg text-xs font-mono ${testSyncStatus === 'success' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : testSyncStatus === 'error' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'}`}>
-                  {testSyncMsg}
+              {/* Quick Select Preset Items */}
+              <div className="space-y-1.5">
+                <span className="text-[11px] text-neutral-400 block font-semibold">Quick Select Common Alch Items:</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    'Rune 2h sword',
+                    "Green d'hide body",
+                    "Blue d'hide body",
+                    'Rune platelegs',
+                    'Air battlestaff',
+                    'Rune battleaxe',
+                    'Adamant platebody',
+                  ].map((pName) => (
+                    <button
+                      key={pName}
+                      type="button"
+                      onClick={() => handleSelectManualItem(pName)}
+                      className={`px-2 py-1 rounded text-[11px] font-medium border transition-all ${
+                        manualItemName.toLowerCase() === pName.toLowerCase()
+                          ? 'bg-amber-500 text-black border-amber-400 font-bold'
+                          : 'bg-[#1b202c] text-neutral-300 border-[#2b3548] hover:bg-[#252c3c]'
+                      }`}
+                    >
+                      {pName}
+                    </button>
+                  ))}
                 </div>
-              )}
-            </div>
+              </div>
 
-            {/* Empty Session State (Ready for Live Stream) */}
-            <div className="bg-[#14171f] p-8 rounded-2xl border border-[#242b3b] text-center space-y-4">
-              <User className="w-12 h-12 text-neutral-500 mx-auto" />
-              <h3 className="text-xl font-bold text-white">Live Session Tracker</h3>
-              <p className="text-xs text-neutral-400 max-w-md mx-auto">
-                Once your RuneLite plugin is connected and you start alching, your live casts, XP gained, and realized profit will stream here in real time.
-              </p>
-              <div className="pt-2">
-                <button 
-                  onClick={handleExportCSV}
-                  className="bg-[#191e29] hover:bg-[#252c3f] text-neutral-300 px-4 py-2 rounded-xl border border-[#2a3245] inline-flex items-center gap-2 text-xs font-semibold"
+              {/* Inputs */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                <div className="md:col-span-2">
+                  <label className="text-neutral-400 block mb-1">Item Name:</label>
+                  <input
+                    type="text"
+                    value={manualItemName}
+                    onChange={(e) => setManualItemName(e.target.value)}
+                    className="w-full bg-[#1b202c] border border-[#2b3548] rounded-lg px-3 py-2 text-white font-semibold"
+                  />
+                </div>
+                <div>
+                  <label className="text-neutral-400 block mb-1">Quantity (Casts):</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={manualQty || ''}
+                    onChange={(e) => setManualQty(Number(e.target.value))}
+                    className="w-full bg-[#1b202c] border border-[#2b3548] rounded-lg px-3 py-2 text-white font-mono font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="text-neutral-400 block mb-1">Buy Price (ea):</label>
+                  <input
+                    type="number"
+                    value={manualBuyPrice || ''}
+                    onChange={(e) => setManualBuyPrice(Number(e.target.value))}
+                    className="w-full bg-[#1b202c] border border-[#2b3548] rounded-lg px-3 py-2 text-amber-400 font-mono font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="text-neutral-400 block mb-1">High Alch Value (ea):</label>
+                  <input
+                    type="number"
+                    value={manualHighAlch || ''}
+                    onChange={(e) => setManualHighAlch(Number(e.target.value))}
+                    className="w-full bg-[#1b202c] border border-[#2b3548] rounded-lg px-3 py-2 text-emerald-400 font-mono font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="text-neutral-400 block mb-1">Nature Rune Cost (ea):</label>
+                  <input
+                    type="text"
+                    disabled
+                    value={`${effectiveNatPrice} gp ${explorersRing ? "(Explorer's Ring)" : ''}`}
+                    className="w-full bg-[#1b202c] border border-[#2b3548] rounded-lg px-3 py-2 text-neutral-400 font-mono"
+                  />
+                </div>
+              </div>
+
+              {/* Dynamic Calculation Preview */}
+              {(() => {
+                const totalCoins = manualQty * manualBuyPrice;
+                const totalAlch = manualQty * manualHighAlch;
+                const totalNats = manualQty * effectiveNatPrice;
+                const netProfit = totalAlch - totalCoins - totalNats;
+                const magicXp = manualQty * 65;
+
+                return (
+                  <div className="bg-[#191e29] p-3.5 rounded-xl border border-[#252c3c] text-xs font-mono space-y-1">
+                    <div className="flex justify-between text-neutral-400">
+                      <span>Total Outlay:</span>
+                      <span>{totalCoins.toLocaleString()} gp</span>
+                    </div>
+                    <div className="flex justify-between text-neutral-400">
+                      <span>Nature Runes:</span>
+                      <span>{totalNats.toLocaleString()} gp</span>
+                    </div>
+                    <div className="flex justify-between text-cyan-400">
+                      <span>Magic XP Gained:</span>
+                      <span>+{magicXp.toLocaleString()} XP</span>
+                    </div>
+                    <div className="flex justify-between border-t border-white/5 pt-1 text-sm font-bold">
+                      <span className="text-white">Net Profit:</span>
+                      <span className={netProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                        {netProfit >= 0 ? `+${netProfit.toLocaleString()} gp` : `${netProfit.toLocaleString()} gp`}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Buttons */}
+              <div className="flex justify-end gap-2 pt-2 border-t border-[#202532]">
+                <button
+                  type="button"
+                  onClick={() => setShowManualLogModal(false)}
+                  className="bg-[#1b202c] hover:bg-[#252c3c] text-neutral-300 font-semibold px-4 py-2 rounded-xl text-xs transition-all border border-[#2b3548]"
                 >
-                  <Download className="w-4 h-4 text-amber-400" /> Export Margins to CSV
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleAddManualSession}
+                  className="bg-amber-500 hover:bg-amber-400 text-black font-bold px-5 py-2 rounded-xl text-xs transition-all shadow-md shadow-amber-500/20"
+                >
+                  ✓ Save Entry to Ledger
                 </button>
               </div>
             </div>
