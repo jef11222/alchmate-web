@@ -35,12 +35,16 @@ export async function GET() {
     const bondBid = latest['13190']?.low || 11750000;
     const bondAsk = latest['13190']?.high || 12100000;
 
-    // Process high alchable items
+    // Process high alchable items and build alch_map lookup
     const alchItems: any[] = [];
+    const alchMap: Record<string, number> = {};
 
     for (const item of mapping) {
       const id = String(item.id);
       const highalch = item.highalch || 0;
+      if (highalch > 0) {
+        alchMap[id] = highalch;
+      }
       if (highalch <= 0) continue;
 
       const p = latest[id];
@@ -74,6 +78,7 @@ export async function GET() {
       nature_rune: natPrice,
       bond: { bid: bondBid, ask: bondAsk },
       latest: latest, // full map for crafting ingredient calculations
+      alch_map: alchMap, // highalch lookup for Craft & Alch
       items: alchItems,
     };
     lastFetchTime = now;
