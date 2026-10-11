@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-// Server-side cache
+// In-memory cache
 let cachedData: any = null;
 let lastFetchTime = 0;
 const CACHE_TTL_MS = 60 * 1000; // 60 seconds
@@ -14,16 +14,20 @@ export async function GET() {
   try {
     const headers = { 'User-Agent': 'AlchMate-Web/1.0 (contact: github.com/jef11222)' };
 
-    const [latestRes, mappingRes] = await Promise.all([
+    // Fetch latest prices, mapping, and 24h volumes in parallel
+    const [latestRes, mappingRes, volumesRes] = await Promise.all([
       fetch('https://prices.runescape.wiki/api/v1/osrs/latest', { headers }),
       fetch('https://prices.runescape.wiki/api/v1/osrs/mapping', { headers }),
+      fetch('https://prices.runescape.wiki/api/v1/osrs/volumes', { headers }),
     ]);
 
     const latestJson = await latestRes.json();
     const mappingJson = await mappingRes.json();
+    const volumesJson = await volumesRes.json();
 
     const latest = latestJson.data || {};
     const mapping = mappingJson || [];
+    const volumes = volumesJson.data || {};
 
     // Nature rune price
     const natPrice = latest['561']?.high || 170;
@@ -48,18 +52,20 @@ export async function GET() {
       const profit = highalch - buyPrice - natPrice;
       const hourlyProfit = profit * 1200; // 1,200 alchs/hr
       const roi = buyPrice > 0 ? (profit / buyPrice) * 100 : 0;
+      const dailyVolume = volumes[id] || 0;
 
       alchItems.push({
         id: item.id,
         name: item.name,
         members: item.members,
         buy_limit: item.limit || 0,
+        volume: dailyVolume,
         highalch,
         buy_price: buyPrice,
         profit,
         hourly_profit: hourlyProfit,
         roi,
-        icon: `https://oldschool.runescape.wiki/images/${encodeURIComponent(item.icon?.replace(/ /g, '_') || '')}`
+        icon: item.icon ? `https://oldschool.runescape.wiki/images/${encodeURIComponent(item.icon.replace(/ /g, '_'))}` : undefined
       });
     }
 
@@ -67,6 +73,7 @@ export async function GET() {
       timestamp: now,
       nature_rune: natPrice,
       bond: { bid: bondBid, ask: bondAsk },
+      latest: latest, // full map for crafting ingredient calculations
       items: alchItems,
     };
     lastFetchTime = now;
