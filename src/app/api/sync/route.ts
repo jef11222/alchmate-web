@@ -10,7 +10,9 @@ const supabaseAdmin = createClient(supabaseUrl, supabaseSecret);
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { sync_token, rsn, coins, nature_runes, total_wealth, world, is_members, alchs } = body;
+    const authHeader = req.headers.get('authorization')?.replace('Bearer ', '').trim();
+    const token = body.sync_token || authHeader || '';
+    const { rsn, coins, nature_runes, total_wealth, world, is_members, alchs } = body;
 
     if (!rsn) {
       return NextResponse.json({ error: 'Missing rsn parameter' }, { status: 400 });
@@ -18,16 +20,25 @@ export async function POST(req: NextRequest) {
 
     let userId: string | null = null;
 
-    // Optional user token verification
-    if (sync_token) {
+    // Verify or auto-provision profile for this sync_token
+    if (token) {
       const { data: profile } = await supabaseAdmin
         .from('profiles')
         .select('id')
-        .eq('sync_token', sync_token)
+        .eq('sync_token', token)
         .single();
 
       if (profile) {
         userId = profile.id;
+      } else {
+        const { data: newProfile } = await supabaseAdmin
+          .from('profiles')
+          .insert({ sync_token: token })
+          .select('id')
+          .single();
+        if (newProfile) {
+          userId = newProfile.id;
+        }
       }
     }
 

@@ -545,15 +545,25 @@ export default function Dashboard() {
           'Authorization': `Bearer ${syncToken || 'alch_test_token'}`
         },
         body: JSON.stringify({
-          character_name: 'TestPlayer',
-          item_id: 11840,
-          item_name: 'Dragon boots',
-          quantity: 5,
-          nature_rune_cost: effectiveNatPrice,
-          item_buy_price: 285000,
-          alch_value: 312000,
-          profit: 134150,
-          xp_gained: 325
+          sync_token: syncToken || 'alch_test_token',
+          rsn: 'TestPlayer',
+          coins: userCoins || 2500000,
+          nature_runes: userNats || 1500,
+          total_wealth: totalNetWorth || 3000000,
+          world: 308,
+          is_members: true,
+          alchs: [
+            {
+              item_id: 11840,
+              item_name: 'Dragon boots',
+              qty: 5,
+              buy_price: 285000,
+              nat_price: effectiveNatPrice,
+              alch_value: 312000,
+              profit: 134150,
+              magic_xp: 325
+            }
+          ]
         })
       });
       const data = await res.json();
