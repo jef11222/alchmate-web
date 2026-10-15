@@ -1037,62 +1037,117 @@ export default function CraftingPage() {
                 </div>
               )}
 
-              {/* Skilling Brackets */}
-              <div className="space-y-4">
-                {guideData.brackets && guideData.brackets.map((br: any, idx: number) => (
-                  <div key={idx} className="bg-[#141721] rounded-2xl border border-[#242b3b] overflow-hidden shadow">
-                    <div className="bg-[#191e29] px-5 py-3 border-b border-[#242b3b] flex items-center justify-between">
-                      <span className="font-bold text-white text-sm">
-                        Level {br.range}: {br.name || 'Core Training'}
-                      </span>
-                      <span className="text-xs text-neutral-400">
-                        Target Level: {br.range.split('-')[1]?.trim() || br.range}
-                      </span>
-                    </div>
+              {/* Skilling Training Methods Table */}
+              <div className="bg-[#141721] rounded-2xl border border-[#242b3b] overflow-hidden shadow-xl">
+                <div className="bg-[#191e29] px-5 py-3 border-b border-[#242b3b] flex flex-wrap items-center justify-between gap-3">
+                  <span className="font-bold text-white text-sm flex items-center gap-2">
+                    <span>📊</span>
+                    <span>{guideSkill} 1–99 Training Progression &amp; Methods</span>
+                  </span>
+                  <span className="text-xs text-neutral-400 font-mono">
+                    Showing {(guideData.brackets || []).length} Optimal Training Methods
+                  </span>
+                </div>
 
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left font-mono text-xs">
-                        <thead className="bg-[#10131b] text-neutral-400 uppercase text-[11px] font-bold border-b border-[#242b3b]">
-                          <tr>
-                            <th className="px-4 py-3 font-sans">Method</th>
-                            <th className="px-3 py-3 text-center font-sans">Style</th>
-                            <th className="px-3 py-3 text-center">XP / Item</th>
-                            <th className="px-3 py-3 text-right">XP / Hr</th>
-                            <th className="px-3 py-3 text-right">Actions to Complete</th>
-                            <th className="px-3 py-3 text-right">Disposal &amp; Profit</th>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left font-mono text-xs">
+                    <thead className="bg-[#10131b] text-neutral-400 uppercase text-[11px] font-bold border-b border-[#242b3b] select-none">
+                      <tr>
+                        <th className="px-3 py-3 text-center">Levels</th>
+                        <th className="px-4 py-3 font-sans">Method &amp; Recipe</th>
+                        <th className="px-3 py-3 text-center font-sans">Status</th>
+                        <th className="px-3 py-3 text-center font-sans">Style</th>
+                        <th className="px-3 py-3 text-right">XP / Action</th>
+                        <th className="px-3 py-3 text-right">XP / Hr</th>
+                        <th className="px-3 py-3 text-right text-amber-400">Actions to Goal</th>
+                        <th className="px-3 py-3 text-right">Disposal</th>
+                        <th className="px-4 py-3 font-sans">Rationale &amp; Verdict</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#1c2230]">
+                      {(guideData.brackets || []).map((b: any, idx: number) => {
+                        const minL = b.min_lvl ?? 1;
+                        const maxL = b.max_lvl ?? 99;
+                        const isCompleted = guideCurLvl >= maxL;
+                        const isCurrent = minL <= guideCurLvl && guideCurLvl < maxL;
+                        const isQuest = b.style === 'quest';
+
+                        // Calculate actions needed for this step
+                        const stepStart = Math.max(getXpForLevel(guideCurLvl), getXpForLevel(minL));
+                        const stepEnd = Math.min(getXpForLevel(maxL), getXpForLevel(guideGoalLvl));
+                        const xpNeeded = Math.max(0, stepEnd - stepStart);
+                        const xpPerAction = b.xp_per_action || 1;
+                        const actionsNeeded = isCompleted ? 0 : Math.ceil(xpNeeded / xpPerAction);
+
+                        const matsStr = b.materials && b.materials.length > 0
+                          ? b.materials.map((m: any) => `${m.qty}x ${m.name}`).join(' + ')
+                          : 'None / Quest';
+
+                        const disposal = b.can_alch ? '🔥 High Alch' : b.can_sell_ge ? '💰 Sell GE' : '📦 Keep / Drop';
+
+                        return (
+                          <tr 
+                            key={idx} 
+                            className={`transition-colors ${
+                              isCurrent 
+                                ? 'bg-emerald-950/20 hover:bg-emerald-950/30' 
+                                : 'hover:bg-[#181d29]/60'
+                            }`}
+                          >
+                            <td className="px-3 py-3 text-center font-bold text-neutral-300">
+                              Lvl {minL}–{maxL}
+                            </td>
+                            <td className="px-4 py-3 font-sans font-bold text-white">
+                              <div>{b.name}</div>
+                              <span className="text-[11px] font-normal text-neutral-400 block mt-0.5">
+                                Materials: {matsStr}
+                              </span>
+                            </td>
+                            <td className="px-3 py-3 text-center">
+                              {isQuest ? (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-300 border border-amber-500/30">
+                                  ⚡ Quest Skip
+                                </span>
+                              ) : isCurrent ? (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 animate-pulse">
+                                  📍 YOU ARE HERE
+                                </span>
+                              ) : isCompleted ? (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-neutral-800 text-neutral-400 border border-neutral-700">
+                                  ✅ Done
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-neutral-900 text-neutral-500 border border-neutral-800">
+                                  🔒 Upcoming
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-3 py-3 text-center font-sans">
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#181d28] border border-[#2a3449] text-amber-300 uppercase">
+                                {b.style || 'Standard'}
+                              </span>
+                            </td>
+                            <td className="px-3 py-3 text-right text-neutral-300">
+                              +{b.xp_per_action?.toLocaleString() || 0}
+                            </td>
+                            <td className="px-3 py-3 text-right font-bold text-emerald-400">
+                              +{b.xp_rate?.toLocaleString() || 0}/hr
+                            </td>
+                            <td className="px-3 py-3 text-right font-bold text-amber-400">
+                              {isQuest ? '1 Quest' : actionsNeeded > 0 ? `${actionsNeeded.toLocaleString()} actions` : '0 (Done)'}
+                            </td>
+                            <td className="px-3 py-3 text-right text-cyan-300 font-sans">
+                              {disposal}
+                            </td>
+                            <td className="px-4 py-3 text-neutral-300 text-[11px] font-sans">
+                              {b.verdict}
+                            </td>
                           </tr>
-                        </thead>
-                        <tbody className="divide-y divide-[#1c2230]">
-                          {br.methods && br.methods.map((m: any, mIdx: number) => (
-                            <tr key={mIdx} className="hover:bg-[#181d29]/60 transition-colors">
-                              <td className="px-4 py-3 font-sans font-bold text-white">
-                                <div>{m.name}</div>
-                                <span className="text-[11px] font-normal text-neutral-400 block mt-0.5">
-                                  {m.description}
-                                </span>
-                              </td>
-                              <td className="px-3 py-3 text-center font-sans">
-                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#181d28] border border-[#2a3449] text-amber-300">
-                                  {m.style || 'Standard'}
-                                </span>
-                              </td>
-                              <td className="px-3 py-3 text-center text-neutral-300">{m.xp_ea}</td>
-                              <td className="px-3 py-3 text-right font-bold text-emerald-400 font-mono">
-                                +{m.xp_hr?.toLocaleString() || 0}/hr
-                              </td>
-                              <td className="px-3 py-3 text-right font-bold text-white font-mono">
-                                {m.actions_needed?.toLocaleString() || '--'}
-                              </td>
-                              <td className="px-3 py-3 text-right text-cyan-300 font-mono">
-                                {m.disposal || 'Alch / GE'}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                ))}
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           )}
