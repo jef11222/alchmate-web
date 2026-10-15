@@ -22,6 +22,7 @@ import {
   Filter
 } from 'lucide-react';
 import { useAlchMate, AlchItem } from '../../context/AlchMateContext';
+import ItemHoverCard from '../../components/ItemHoverCard';
 import w308StaplesData from '../../data/w308_staples.json';
 import overnightCandidatesData from '../../data/overnight_candidates.json';
 
@@ -66,8 +67,12 @@ export default function AlchPage() {
   const [pageSize, setPageSize] = useState(50);
   const [copiedId, setCopiedId] = useState<number | null>(null);
 
-  // W308 Role: Buyer vs Seller (matching desktop gui.py:2099-2111)
+  // W308 Role: Buyer vs Seller
   const [w308Role, setW308Role] = useState<'buyer' | 'seller'>('buyer');
+
+  // Hover info card
+  const [hoveredItem, setHoveredItem] = useState<AlchItem | null>(null);
+  const [hoverPos, setHoverPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
   // Overnight Settings
   const [overnightDuration, setOvernightDuration] = useState(12);
@@ -333,7 +338,18 @@ export default function AlchPage() {
                     {paginatedItems.map((item) => {
                       const inCart = cartItems.some((c) => c.id === item.id);
                       return (
-                        <tr key={item.id} className="hover:bg-[#181d29]/60 transition-colors">
+                        <tr
+                          key={item.id}
+                          className="hover:bg-[#181d29]/60 transition-colors"
+                          onMouseEnter={(e) => {
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            const x = Math.min(window.innerWidth - 340, Math.max(10, rect.left + 160));
+                            const y = Math.min(window.innerHeight - 480, Math.max(10, rect.top));
+                            setHoverPos({ x, y });
+                            setHoveredItem(item);
+                          }}
+                          onMouseLeave={() => setHoveredItem(null)}
+                        >
                           <td className="px-3 py-3 text-center">
                             <button
                               onClick={() => toggleCart(item)}
@@ -435,7 +451,15 @@ export default function AlchPage() {
               {paginatedItems.map((item) => (
                 <div
                   key={item.id}
-                  className="bg-[#141721] border border-[#242b3b] p-4 rounded-2xl space-y-3 font-mono text-xs"
+                  className="bg-[#141721] border border-[#242b3b] hover:border-amber-500/40 p-4 rounded-2xl space-y-3 font-mono text-xs transition"
+                  onMouseEnter={(e) => {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const x = Math.min(window.innerWidth - 340, Math.max(10, rect.left + 20));
+                    const y = Math.min(window.innerHeight - 480, Math.max(10, rect.top));
+                    setHoverPos({ x, y });
+                    setHoveredItem(item);
+                  }}
+                  onMouseLeave={() => setHoveredItem(null)}
                 >
                   <div className="flex justify-between items-start gap-2">
                     <div className="flex items-center gap-2">
@@ -674,6 +698,16 @@ export default function AlchPage() {
               💡 <strong>How to use:</strong> In RuneLite, open your Bank, right-click the tag tab icon on the left, click &quot;Import Tag Tab&quot;, and paste this string. All 30 items will appear together!
             </p>
           </div>
+        </div>
+      )}
+
+      {/* Floating Hover Info Card */}
+      {hoveredItem && (
+        <div
+          className="fixed z-50 pointer-events-none transition-all duration-75"
+          style={{ left: `${hoverPos.x}px`, top: `${hoverPos.y}px` }}
+        >
+          <ItemHoverCard item={hoveredItem} natPrice={effectiveNatPrice} />
         </div>
       )}
     </div>

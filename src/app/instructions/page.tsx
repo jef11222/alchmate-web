@@ -47,50 +47,49 @@ export default function InstructionsPage() {
         </a>
       </div>
 
-      {/* Section 1: RuneLite Plugin Setup */}
+      {/* Section 1: RuneLite Plugin & Hub Rule Compliance */}
       <section id="plugin-setup" className="bg-neutral-900 border border-neutral-800 rounded-xl p-6 space-y-4">
         <div className="flex items-center gap-2 border-b border-neutral-800 pb-3">
           <span className="text-xl">🔌</span>
-          <h2 className="text-lg font-bold text-neutral-100">Step 1: Installing & Linking the RuneLite Plugin</h2>
+          <h2 className="text-lg font-bold text-neutral-100">Step 1: In-Game Plugin & RuneLite Hub Compliance</h2>
         </div>
 
         <div className="space-y-4 text-sm text-neutral-300">
           <p>
-            AlchMate includes an in-game RuneLite plugin that automatically reads your inventory coins, nature runes, and bank alch supplies in real time.
+            AlchMate includes an in-game RuneLite plugin engineered strictly within official <strong>RuneLite Plugin Hub Guidelines</strong>.
           </p>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
             <div className="bg-neutral-950 p-4 rounded-lg border border-neutral-800 space-y-2">
-              <span className="text-xs font-bold text-amber-400 uppercase tracking-wider block">1. Download Plugin</span>
+              <span className="text-xs font-bold text-amber-400 uppercase tracking-wider block">1. 100% Client-Side Privacy</span>
               <p className="text-xs text-neutral-400">
-                Download the compiled <code className="text-amber-300 font-mono">AlchMatePlugin.jar</code> from the homepage or release artifacts.
+                In strict accordance with RuneLite Hub rules, the plugin <strong>never</strong> sends player telemetry, account names, or in-game cash to remote third-party web servers.
               </p>
             </div>
 
             <div className="bg-neutral-950 p-4 rounded-lg border border-neutral-800 space-y-2">
-              <span className="text-xs font-bold text-amber-400 uppercase tracking-wider block">2. Copy to Plugin Folder</span>
+              <span className="text-xs font-bold text-amber-400 uppercase tracking-wider block">2. In-Game HUD & Side Panel</span>
               <p className="text-xs text-neutral-400">
-                Place the JAR in your RuneLite external plugins folder:
-                <br />
-                <code className="text-[11px] text-neutral-300 font-mono block mt-1 bg-neutral-900 p-1 rounded">
-                  ~/.runelite/plugins/
-                </code>
+                Displays real-time High Alch profit/hr, casts per hour, Magic XP drops (+65 XP), and your Two-Stage Bond Progress directly above your inventory.
               </p>
             </div>
 
             <div className="bg-neutral-950 p-4 rounded-lg border border-neutral-800 space-y-2">
-              <span className="text-xs font-bold text-amber-400 uppercase tracking-wider block">3. Enable In-Game</span>
+              <span className="text-xs font-bold text-amber-400 uppercase tracking-wider block">3. 1-Click Bank Tag Integration</span>
               <p className="text-xs text-neutral-400">
-                Launch RuneLite, open the Plugin Hub sidebar, search for &quot;AlchMate&quot;, and toggle it ON. Your live coins and nats will sync immediately!
+                Use the <code className="text-emerald-400 font-mono">📋 Copy Bank Tag</code> button on this website to instantly group your alchemy batches in RuneLite bank tabs without third-party plugins.
               </p>
             </div>
           </div>
 
-          <div className="bg-emerald-950/20 border border-emerald-800/40 p-3 rounded-lg text-xs text-emerald-300 flex items-center gap-2">
-            <span>✅</span>
-            <span>
-              <strong>Dual Mode Bridge:</strong> The plugin communicates locally with the Desktop Companion via <code className="font-mono">127.0.0.1:18833</code> and seamlessly syncs to the Web App via your private sync token!
-            </span>
+          <div className="bg-sky-950/20 border border-sky-800/40 p-3.5 rounded-lg text-xs text-sky-300 space-y-1">
+            <div className="flex items-center gap-2 font-bold text-sky-400">
+              <span>🌐</span>
+              <span>Where Does AlchMate Get Its Live Market Data? (Official Wiki API)</span>
+            </div>
+            <p className="text-neutral-300 leading-relaxed">
+              AlchMate is powered directly by the official <strong>Old School RuneScape Wiki Real-Time Market API</strong> (<code className="text-amber-300 font-mono">prices.runescape.wiki</code>). No personal API keys or third-party registrations are needed — live Grand Exchange asks, bids, 5-minute trade velocity, and bond pricing stream automatically to your browser every 60 seconds!
+            </p>
           </div>
         </div>
       </section>

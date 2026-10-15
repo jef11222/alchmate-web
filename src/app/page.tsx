@@ -16,7 +16,8 @@ import {
   Download,
   AlertTriangle
 } from 'lucide-react';
-import { useAlchMate } from '../context/AlchMateContext';
+import { useAlchMate, AlchItem } from '../context/AlchMateContext';
+import ItemHoverCard from '../components/ItemHoverCard';
 
 function formatGp(val: number): string {
   if (!val || val === 0) return '0 gp';
@@ -28,6 +29,8 @@ function formatGp(val: number): string {
 
 export default function HomePage() {
   const { priceData, loading, effectiveNatPrice } = useAlchMate();
+  const [hoveredItem, setHoveredItem] = React.useState<AlchItem | null>(null);
+  const [hoverPos, setHoverPos] = React.useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
   // Top 5 trending alch items
   const trendingAlchs = React.useMemo(() => {
@@ -212,7 +215,15 @@ export default function HomePage() {
             trendingAlchs.map((item) => (
               <div
                 key={item.id}
-                className="bg-[#141721] border border-[#242b3b] hover:border-amber-500/40 p-4 rounded-2xl space-y-2 transition-all flex flex-col justify-between"
+                className="bg-[#141721] border border-[#242b3b] hover:border-amber-500/40 p-4 rounded-2xl space-y-2 transition-all flex flex-col justify-between cursor-pointer"
+                onMouseEnter={(e) => {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const x = Math.min(window.innerWidth - 340, Math.max(10, rect.left));
+                  const y = Math.min(window.innerHeight - 480, Math.max(10, rect.top - 100));
+                  setHoverPos({ x, y });
+                  setHoveredItem(item);
+                }}
+                onMouseLeave={() => setHoveredItem(null)}
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-center gap-2">
@@ -261,9 +272,9 @@ export default function HomePage() {
       {/* RuneLite Plugin CTA Banner */}
       <section className="bg-gradient-to-r from-[#17202e] to-[#121620] border border-[#2b3952] rounded-3xl p-8 flex flex-col md:flex-row items-center justify-between gap-6 shadow-xl">
         <div className="space-y-2 text-center md:text-left">
-          <h2 className="text-2xl font-black text-white">Stream In-Game Alchs to Web</h2>
+          <h2 className="text-2xl font-black text-white">AlchMate RuneLite Plugin</h2>
           <p className="text-xs md:text-sm text-neutral-300 max-w-xl">
-            Link your RuneLite client with our companion plugin to automatically stream inventory cash, nature rune counts, completed alch batches, and Magic XP in real time.
+            Track your alchemy efficiency with our official in-game overlay, side panel, profit rate tracker, and 1-click Bank Tag integration.
           </p>
         </div>
         <Link
@@ -274,6 +285,15 @@ export default function HomePage() {
           <span>Plugin Setup Guide &rarr;</span>
         </Link>
       </section>
+      {/* Floating Hover Info Card */}
+      {hoveredItem && (
+        <div
+          className="fixed z-50 pointer-events-none transition-all duration-75"
+          style={{ left: `${hoverPos.x}px`, top: `${hoverPos.y}px` }}
+        >
+          <ItemHoverCard item={hoveredItem} natPrice={effectiveNatPrice} />
+        </div>
+      )}
     </div>
   );
 }
