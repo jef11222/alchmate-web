@@ -1,9 +1,13 @@
 import { NextResponse } from 'next/server';
 
-// In-memory cache
+// In-memory caches
 let cachedData: any = null;
 let lastFetchTime = 0;
-const CACHE_TTL_MS = 60 * 1000; // 60 seconds
+const CACHE_TTL_MS = 60 * 1000; // 60 seconds for live prices
+
+let cachedMapping: any = null;
+let lastMappingFetchTime = 0;
+const MAPPING_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours for static mapping
 
 // Bond item ID
 const BOND_ITEM_ID = '13190';
@@ -17,23 +21,45 @@ export async function GET() {
   try {
     const headers = { 'User-Agent': 'AlchMate-Web/2.0 (contact: github.com/jef11222)' };
 
-    // Fetch latest prices, mapping, 24h volumes, 5m volumes, and Bond 1h timeseries in parallel
-    const [latestRes, mappingRes, volumesRes, volumes5mRes, bondTsRes] = await Promise.all([
+    // Fetch mapping only if cache expired
+    let mapping = cachedMapping;
+    const shouldFetchMapping = !cachedMapping || (now - lastMappingFetchTime >= MAPPING_TTL_MS);
+
+    const fetches: Promise<any>[] = [
       fetch('https://prices.runescape.wiki/api/v1/osrs/latest', { headers }),
-      fetch('https://prices.runescape.wiki/api/v1/osrs/mapping', { headers }),
       fetch('https://prices.runescape.wiki/api/v1/osrs/volumes', { headers }),
       fetch('https://prices.runescape.wiki/api/v1/osrs/5m', { headers }).catch(() => ({ json: async () => ({ data: {} }) })),
       fetch(`https://prices.runescape.wiki/api/v1/osrs/timeseries?timestep=1h&id=${BOND_ITEM_ID}`, { headers }).catch(() => ({ json: async () => ({ data: [] }) }))
-    ]);
+    ];
+
+    if (shouldFetchMapping) {
+      fetches.push(fetch('https://prices.runescape.wiki/api/v1/osrs/mapping', { headers }).catch(() => null));
+    }
+
+    const results = await Promise.all(fetches);
+    const latestRes = results[0];
+    const volumesRes = results[1];
+    const volumes5mRes = results[2];
+    const bondTsRes = results[3];
+
+    if (shouldFetchMapping && results[4]) {
+      try {
+        const mappingJson = await results[4].json();
+        if (Array.isArray(mappingJson) && mappingJson.length > 0) {
+          cachedMapping = mappingJson;
+          lastMappingFetchTime = now;
+          mapping = mappingJson;
+        }
+      } catch {}
+    }
 
     const latestJson = await latestRes.json();
-    const mappingJson = await mappingRes.json();
     const volumesJson = await volumesRes.json();
     const volumes5mJson = await volumes5mRes.json();
     const bondTsJson = await bondTsRes.json();
 
     const latest = latestJson.data || {};
-    const mapping = mappingJson || [];
+    mapping = mapping || [];
     const volumes24h = volumesJson.data || {};
     const volumes5m = volumes5mJson.data || {};
     const bondSeries: any[] = bondTsJson.data || [];

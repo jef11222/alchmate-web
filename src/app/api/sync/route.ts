@@ -11,11 +11,25 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const authHeader = req.headers.get('authorization')?.replace('Bearer ', '').trim();
-    const token = body.sync_token || authHeader || '';
-    const { rsn, coins, nature_runes, total_wealth, world, is_members, alchs } = body;
+    const token = body.sync_token || body.syncToken || authHeader || '';
+    
+    // Support both Java plugin camelCase and web snake_case
+    const rsn = (body.rsn || body.account || '').toString().trim();
+    const coins = body.coins !== undefined ? Number(body.coins) : 0;
+    const nature_runes = body.nature_runes !== undefined 
+      ? Number(body.nature_runes) 
+      : (body.natureRunes !== undefined ? Number(body.natureRunes) : 0);
+    const total_wealth = body.total_wealth !== undefined 
+      ? Number(body.total_wealth) 
+      : (body.totalWealth !== undefined ? Number(body.totalWealth) : 0);
+    const world = body.world ? Number(body.world) : 308;
+    const is_members = body.is_members !== undefined 
+      ? Boolean(body.is_members) 
+      : (body.isMembers !== undefined ? Boolean(body.isMembers) : false);
+    const alchs = Array.isArray(body.alchs) ? body.alchs : [];
 
     if (!rsn) {
-      return NextResponse.json({ error: 'Missing rsn parameter' }, { status: 400 });
+      return NextResponse.json({ error: 'Missing character name (rsn / account)' }, { status: 400 });
     }
 
     let userId: string | null = null;
@@ -48,11 +62,11 @@ export async function POST(req: NextRequest) {
         {
           user_id: userId,
           rsn,
-          coins: coins || 0,
-          nature_runes: nature_runes || 0,
-          total_wealth: total_wealth || 0,
-          world: world || 308,
-          is_members: is_members || false,
+          coins,
+          nature_runes,
+          total_wealth,
+          world,
+          is_members,
           last_seen: new Date().toISOString(),
         },
         { onConflict: 'user_id,rsn' }
@@ -60,19 +74,19 @@ export async function POST(req: NextRequest) {
     }
 
     // 2. Insert Batch Alch Logs
-    if (Array.isArray(alchs) && alchs.length > 0 && userId) {
+    if (alchs.length > 0 && userId) {
       const insertRows = alchs.map((a: any) => ({
         user_id: userId,
         rsn,
-        item_id: a.item_id,
-        item_name: a.item_name,
-        qty: a.qty,
-        buy_price: a.buy_price,
-        nat_price: a.nat_price,
-        alch_val: a.alch_val,
-        profit: a.profit,
-        xp: a.xp || 0,
-        cost_basis_type: a.cost_basis_type || 'GE',
+        item_id: a.item_id || a.itemId,
+        item_name: a.item_name || a.itemName,
+        qty: a.qty || a.quantity || 1,
+        buy_price: a.buy_price || a.buyPrice || 0,
+        nat_price: a.nat_price || a.natPrice || 0,
+        alch_val: a.alch_val || a.alch_value || a.alchVal || 0,
+        profit: a.profit || 0,
+        xp: a.xp || a.magic_xp || a.magicXp || 0,
+        cost_basis_type: a.cost_basis_type || a.costBasis || 'GE',
       }));
 
       await supabaseAdmin.from('alch_sessions').insert(insertRows);
