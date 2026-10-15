@@ -241,7 +241,15 @@ export function AlchMateProvider({ children }: { children: React.ReactNode }) {
       if (savedSession) setSessionLog(JSON.parse(savedSession));
 
       const savedToken = localStorage.getItem('alchmate_sync_token');
-      if (savedToken) setSyncToken(savedToken);
+      let token = savedToken;
+      if (!token && typeof crypto !== 'undefined' && crypto.getRandomValues) {
+        const randomHex = Array.from(crypto.getRandomValues(new Uint8Array(12)))
+          .map((b) => b.toString(16).padStart(2, '0'))
+          .join('');
+        token = `alch_${randomHex}`;
+        localStorage.setItem('alchmate_sync_token', token);
+      }
+      if (token) setSyncToken(token);
 
       const savedCoins = localStorage.getItem('alchmate_coins');
       if (savedCoins) setUserCoins(Number(savedCoins));
@@ -253,6 +261,83 @@ export function AlchMateProvider({ children }: { children: React.ReactNode }) {
       if (savedBatch) setUserBatchValue(Number(savedBatch));
     } catch {}
   }, []);
+
+  const updateSyncToken = useCallback((t: string) => {
+    setSyncToken(t);
+    try {
+      localStorage.setItem('alchmate_sync_token', t);
+    } catch {}
+  }, []);
+
+  // Background Cloud Sync Polling (every 6s)
+  useEffect(() => {
+    if (!syncToken) return;
+
+    let isMounted = true;
+    const pollSync = async () => {
+      try {
+        const res = await fetch(`/api/sync?token=${encodeURIComponent(syncToken)}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!isMounted) return;
+
+        if (data?.characters && Array.isArray(data.characters) && data.characters.length > 0) {
+          const current = data.characters.find((c: any) => c.rsn === activeAccount) || data.characters[0];
+          if (current) {
+            if (current.coins !== undefined) {
+              setUserCoins(Number(current.coins));
+              localStorage.setItem('alchmate_coins', String(current.coins));
+            }
+            if (current.nature_runes !== undefined) {
+              setUserNats(Number(current.nature_runes));
+              localStorage.setItem('alchmate_nats', String(current.nature_runes));
+            }
+            if (!activeAccount || activeAccount === 'Main') {
+              setActiveAccount(current.rsn);
+            }
+          }
+        }
+
+        if (data?.sessions && Array.isArray(data.sessions) && data.sessions.length > 0) {
+          setSessionLog((prev) => {
+            const existingIds = new Set(prev.map((s) => s.id));
+            const newEntries: SessionEntry[] = [];
+            for (const s of data.sessions) {
+              const sid = String(s.id);
+              if (!existingIds.has(sid)) {
+                newEntries.push({
+                  id: sid,
+                  timestamp: new Date(s.created_at || Date.now()).getTime(),
+                  account: s.rsn || 'Main',
+                  itemId: s.item_id,
+                  itemName: s.item_name,
+                  qty: s.qty,
+                  price: s.buy_price,
+                  natPrice: s.nat_price,
+                  alchVal: s.alch_val,
+                  netProfit: s.profit,
+                  totalCoins: 0,
+                  role: 'alch',
+                  magicXp: s.xp || (s.qty * 65),
+                });
+              }
+            }
+            if (newEntries.length === 0) return prev;
+            const updated = [...newEntries, ...prev];
+            localStorage.setItem('alchmate_session', JSON.stringify(updated));
+            return updated;
+          });
+        }
+      } catch {}
+    };
+
+    pollSync();
+    const interval = setInterval(pollSync, 6000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [syncToken, activeAccount]);
 
   // Fetch prices from /api/prices
   const refreshPrices = useCallback(async () => {
@@ -442,7 +527,7 @@ export function AlchMateProvider({ children }: { children: React.ReactNode }) {
         setActiveAccount,
         allAccounts,
         syncToken,
-        setSyncToken,
+        setSyncToken: updateSyncToken,
         userCoins,
         setUserCoins,
         userNats,

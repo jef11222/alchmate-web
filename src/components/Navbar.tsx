@@ -17,9 +17,12 @@ import {
   Sliders, 
   AlertTriangle,
   Menu,
-  X
+  X,
+  Zap,
+  Key
 } from 'lucide-react';
 import { useAlchMate } from '../context/AlchMateContext';
+import LinkRuneLiteModal from './LinkRuneLiteModal';
 
 export default function Navbar() {
   const pathname = usePathname();
@@ -41,6 +44,7 @@ export default function Navbar() {
   } = useAlchMate();
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [showLinkModal, setShowLinkModal] = useState(false);
 
   // Keyboard shortcut Ctrl+K to focus search
   useEffect(() => {
@@ -141,6 +145,16 @@ export default function Navbar() {
               <span className="hidden md:inline">{loading ? 'Syncing...' : `${nextRefreshSec}s`}</span>
             </button>
 
+            {/* Link RuneLite Cloud Button */}
+            <button
+              onClick={() => setShowLinkModal(true)}
+              className="hidden sm:flex bg-[#181d28] hover:bg-[#202738] border border-blue-500/40 text-blue-400 hover:text-blue-300 px-2.5 py-1.5 rounded-lg items-center gap-1.5 text-xs font-mono font-bold shrink-0 cursor-pointer transition shadow-sm"
+              title="Get your Cloud Sync Key to link RuneLite"
+            >
+              <Zap className="w-3.5 h-3.5 text-amber-400" />
+              <span>Link RuneLite</span>
+            </button>
+
             {/* Stale Data Indicator if offline */}
             {isStaleData && (
               <span className="bg-amber-500/20 text-amber-300 border border-amber-500/40 px-2 py-1 rounded text-[10px] font-bold flex items-center gap-1">
@@ -211,6 +225,12 @@ export default function Navbar() {
           <span>{toastMsg}</span>
         </div>
       )}
+
+      {/* Link RuneLite Cloud Modal */}
+      <LinkRuneLiteModal
+        isOpen={showLinkModal}
+        onClose={() => setShowLinkModal(false)}
+      />
     </>
   );
 }

@@ -1,9 +1,10 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
-import { Shield, Coins, Ticket, User, Layers } from 'lucide-react';
+import { Shield, Coins, Ticket, User, Layers, Zap } from 'lucide-react';
 import { useAlchMate } from '../context/AlchMateContext';
+import LinkRuneLiteModal from './LinkRuneLiteModal';
 
 function formatGp(val: number): string {
   if (!val || val === 0) return '0 gp';
@@ -14,6 +15,7 @@ function formatGp(val: number): string {
 }
 
 export default function PlayerHUD() {
+  const [showLinkModal, setShowLinkModal] = useState(false);
   const { 
     priceData, 
     userCoins, 
@@ -21,7 +23,8 @@ export default function PlayerHUD() {
     totalNetWorth,
     activeAccount, 
     setActiveAccount, 
-    allAccounts 
+    allAccounts,
+    syncToken
   } = useAlchMate();
 
   const bondPrice = priceData?.bond?.patient_bid || priceData?.bond?.bid || 11750000;
@@ -89,8 +92,23 @@ export default function PlayerHUD() {
               />
             </div>
           </Link>
+
+          {/* Link RuneLite Button */}
+          <button
+            onClick={() => setShowLinkModal(true)}
+            className="flex items-center gap-1.5 bg-[#181d28] hover:bg-[#202738] border border-blue-500/40 text-blue-400 hover:text-blue-300 px-3 py-1 rounded-lg transition-all font-mono font-bold cursor-pointer"
+            title="Get your Cloud Sync Key to link RuneLite"
+          >
+            <Zap className="w-3.5 h-3.5 text-amber-400" />
+            <span>Link RuneLite</span>
+          </button>
         </div>
       </div>
+
+      <LinkRuneLiteModal
+        isOpen={showLinkModal}
+        onClose={() => setShowLinkModal(false)}
+      />
     </div>
   );
 }
