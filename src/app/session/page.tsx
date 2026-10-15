@@ -15,10 +15,19 @@ export default function SessionPage() {
     showToast,
   } = useAlchMate();
 
+  const [activeSubTab, setActiveSubTab] = useState<'session' | 'alerts'>('session');
   const [viewMode, setViewMode] = useState<'consolidated' | 'detailed'>('consolidated');
   const [filterAccount, setFilterAccount] = useState<string>('all');
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingEntry, setEditingEntry] = useState<SessionEntry | null>(null);
+
+  // High Margin Alerts Feed matching gui.py:6494
+  const highMarginAlerts = useMemo(() => {
+    if (!priceData?.items) return [];
+    return priceData.items
+      .filter((it) => it.profit >= 200 && it.volume >= 50)
+      .slice(0, 50);
+  }, [priceData]);
 
   // New entry form state
   const [newItemName, setNewItemName] = useState('');
@@ -236,38 +245,68 @@ export default function SessionPage() {
         </div>
       </div>
 
-      {/* 4 Stat Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Total Casts */}
-        <div className="bg-neutral-900/90 border border-neutral-800 rounded-xl p-4 shadow-sm">
-          <div className="text-xs text-neutral-400 font-medium">✨ Total Casts Done</div>
-          <div className="text-2xl font-bold text-blue-400 mt-1 font-mono">{totalCasts.toLocaleString()}</div>
-          <p className="text-xs text-neutral-500 mt-1">High Alchemy casts recorded.</p>
-        </div>
-
-        {/* Realized Profit */}
-        <div className="bg-neutral-900/90 border border-emerald-500/30 rounded-xl p-4 shadow-sm">
-          <div className="text-xs text-emerald-400 font-bold">💰 Realized Profit</div>
-          <div className="text-2xl font-bold text-emerald-400 mt-1 font-mono">
-            {totalProfit >= 0 ? `+${totalProfit.toLocaleString()}` : totalProfit.toLocaleString()} gp
-          </div>
-          <p className="text-xs text-neutral-500 mt-1">Net profit after item cost and nature runes.</p>
-        </div>
-
-        {/* Magic XP Gained */}
-        <div className="bg-neutral-900/90 border border-neutral-800 rounded-xl p-4 shadow-sm">
-          <div className="text-xs text-neutral-400 font-medium">🔮 Magic XP Gained</div>
-          <div className="text-2xl font-bold text-purple-400 mt-1 font-mono">+{totalMagicXp.toLocaleString()} XP</div>
-          <p className="text-xs text-neutral-500 mt-1">65 XP earned per High Alch cast.</p>
-        </div>
-
-        {/* Natures Consumed */}
-        <div className="bg-neutral-900/90 border border-neutral-800 rounded-xl p-4 shadow-sm">
-          <div className="text-xs text-neutral-400 font-medium">🌿 Nature Runes Used</div>
-          <div className="text-2xl font-bold text-amber-400 mt-1 font-mono">{totalNats.toLocaleString()}</div>
-          <p className="text-xs text-neutral-500 mt-1">Total runes consumed this session.</p>
-        </div>
+      {/* 2 Sub-Views Pills matching gui.py:1554 */}
+      <div className="flex items-center gap-2 bg-neutral-900 border border-neutral-800 p-1.5 rounded-xl text-xs font-semibold w-fit">
+        <button
+          onClick={() => setActiveSubTab('session')}
+          className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer ${
+            activeSubTab === 'session'
+              ? 'bg-amber-500 text-black font-bold shadow'
+              : 'text-neutral-400 hover:text-white'
+          }`}
+        >
+          <span>📊 Session Profit Ledger</span>
+        </button>
+        <button
+          onClick={() => setActiveSubTab('alerts')}
+          className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer ${
+            activeSubTab === 'alerts'
+              ? 'bg-amber-500 text-black font-bold shadow'
+              : 'text-neutral-400 hover:text-white'
+          }`}
+        >
+          <span>🔔 Live Alerts Feed</span>
+          <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-rose-500 text-white font-mono font-bold">
+            {highMarginAlerts.length}
+          </span>
+        </button>
       </div>
+
+      {/* VIEW 1: SESSION LEDGER */}
+      {activeSubTab === 'session' && (
+        <>
+          {/* 4 Stat Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Total Casts */}
+            <div className="bg-neutral-900/90 border border-neutral-800 rounded-xl p-4 shadow-sm">
+              <div className="text-xs text-neutral-400 font-medium">✨ Total Casts Done</div>
+              <div className="text-2xl font-bold text-blue-400 mt-1 font-mono">{totalCasts.toLocaleString()}</div>
+              <p className="text-xs text-neutral-500 mt-1">High Alchemy casts recorded.</p>
+            </div>
+
+            {/* Realized Profit */}
+            <div className="bg-neutral-900/90 border border-emerald-500/30 rounded-xl p-4 shadow-sm">
+              <div className="text-xs text-emerald-400 font-bold">💰 Realized Profit</div>
+              <div className="text-2xl font-bold text-emerald-400 mt-1 font-mono">
+                {totalProfit >= 0 ? `+${totalProfit.toLocaleString()}` : totalProfit.toLocaleString()} gp
+              </div>
+              <p className="text-xs text-neutral-500 mt-1">Net profit after item cost and nature runes.</p>
+            </div>
+
+            {/* Magic XP Gained */}
+            <div className="bg-neutral-900/90 border border-neutral-800 rounded-xl p-4 shadow-sm">
+              <div className="text-xs text-neutral-400 font-medium">🔮 Magic XP Gained</div>
+              <div className="text-2xl font-bold text-purple-400 mt-1 font-mono">+{totalMagicXp.toLocaleString()} XP</div>
+              <p className="text-xs text-neutral-500 mt-1">65 XP earned per High Alch cast.</p>
+            </div>
+
+            {/* Natures Consumed */}
+            <div className="bg-neutral-900/90 border border-neutral-800 rounded-xl p-4 shadow-sm">
+              <div className="text-xs text-neutral-400 font-medium">🌿 Nature Runes Used</div>
+              <div className="text-2xl font-bold text-amber-400 mt-1 font-mono">{totalNats.toLocaleString()}</div>
+              <p className="text-xs text-neutral-500 mt-1">Total runes consumed this session.</p>
+            </div>
+          </div>
 
       {/* Session Ledger Table & View Mode Switcher */}
       <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-5 shadow-lg space-y-4">
@@ -406,6 +445,83 @@ export default function SessionPage() {
           </div>
         )}
       </div>
+      </>
+      )}
+
+      {/* VIEW 2: LIVE ALERTS FEED matching gui.py:6494 */}
+      {activeSubTab === 'alerts' && (
+        <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-5 shadow-lg space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-neutral-800 pb-3">
+            <div>
+              <h2 className="text-base font-bold text-amber-400 flex items-center gap-2">
+                <span>🔔</span> Recent High Margin Alerts (&ge; 200 gp Net Profit)
+              </h2>
+              <p className="text-xs text-neutral-400 mt-0.5">
+                Real-time price disparities detected on Grand Exchange ticker refreshes.
+              </p>
+            </div>
+            <span className="text-xs font-mono text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20 font-bold">
+              ⚡ Live Radar Active
+            </span>
+          </div>
+
+          <div className="overflow-x-auto rounded-lg border border-neutral-800">
+            <table className="w-full text-left text-xs md:text-sm font-mono">
+              <thead className="bg-neutral-950 text-neutral-400 text-xs font-semibold uppercase tracking-wider border-b border-neutral-800">
+                <tr>
+                  <th className="py-3 px-4 font-sans">Item Name</th>
+                  <th className="py-3 px-3 text-right">Offer (Buy)</th>
+                  <th className="py-3 px-3 text-right">High Alch</th>
+                  <th className="py-3 px-3 text-right text-emerald-400 font-bold">Net Profit (ea)</th>
+                  <th className="py-3 px-3 text-right text-amber-400 font-bold">Profit / Hr</th>
+                  <th className="py-3 px-3 text-right">24h Vol</th>
+                  <th className="py-3 px-4 text-center font-sans">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-neutral-800/60 bg-neutral-900/60">
+                {highMarginAlerts.map((item) => (
+                  <tr key={item.id} className="hover:bg-neutral-800/40 transition">
+                    <td className="py-3 px-4 font-sans font-bold text-white flex items-center gap-2">
+                      <span>{item.name}</span>
+                      {item.members && (
+                        <span className="text-[10px] px-1 py-0.2 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 font-mono">
+                          P2P
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-3 px-3 text-right text-neutral-300">
+                      {item.buy_price.toLocaleString()} gp
+                    </td>
+                    <td className="py-3 px-3 text-right text-neutral-400">
+                      {item.highalch.toLocaleString()} gp
+                    </td>
+                    <td className="py-3 px-3 text-right font-bold text-emerald-400">
+                      +{item.profit.toLocaleString()} gp
+                    </td>
+                    <td className="py-3 px-3 text-right font-bold text-amber-400">
+                      +{(item.hourly_profit || item.profit * 1200).toLocaleString()}/hr
+                    </td>
+                    <td className="py-3 px-3 text-right text-neutral-400">
+                      {item.volume.toLocaleString()}
+                    </td>
+                    <td className="py-3 px-4 text-center font-sans">
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(item.buy_price.toString());
+                          showToast(`📋 Copied buy price: ${item.buy_price.toLocaleString()} gp`);
+                        }}
+                        className="px-2.5 py-1 rounded bg-neutral-800 hover:bg-amber-500 hover:text-black text-neutral-200 border border-neutral-700 text-xs font-semibold transition"
+                      >
+                        Copy Bid
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Manual Entry Modal */}
       {showAddModal && (
