@@ -316,7 +316,27 @@ export default function Dashboard() {
   // Alch Hub Sub-views
   const [alchSubView, setAlchSubView] = useState<'table' | 'overnight' | 'w308' | 'bank_tag' | 'rec'>('table');
 
+  // Staging Developer Access Gate (Private Access)
+  const [isDevUnlocked, setIsDevUnlocked] = useState<boolean>(true);
+  const [devPasswordInput, setDevPasswordInput] = useState<string>('');
+  const [devError, setDevError] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const passParam = params.get('pass');
+    if (passParam === 'alchmate' || passParam === 'alchmate2026') {
+      localStorage.setItem('alchmate_dev_unlocked', 'true');
+      setIsDevUnlocked(true);
+      return;
+    }
+    const saved = localStorage.getItem('alchmate_dev_unlocked');
+    if (saved === 'true') {
+      setIsDevUnlocked(true);
+    } else {
+      setIsDevUnlocked(false);
+    }
+  }, []);
 
   const [priceData, setPriceData] = useState<PriceData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -2105,6 +2125,53 @@ export default function Dashboard() {
       setTestSyncMsg(err.message || 'Network request failed.');
     }
   };
+
+  if (!isDevUnlocked) {
+    return (
+      <div className="min-h-screen bg-[#0a0d14] flex items-center justify-center p-4 text-[#e0e6ed] font-sans">
+        <div className="max-w-md w-full bg-[#141721] border border-amber-500/40 rounded-2xl p-8 text-center space-y-6 shadow-2xl">
+          <div className="w-16 h-16 bg-amber-500/10 border border-amber-500/30 rounded-2xl flex items-center justify-center mx-auto text-3xl">
+            🔒
+          </div>
+          <div>
+            <h1 className="text-2xl font-black text-white tracking-wide">AlchMate Staging</h1>
+            <p className="text-xs text-amber-400 font-semibold mt-1">Private Developer Environment</p>
+          </div>
+          <p className="text-xs text-neutral-300 leading-relaxed">
+            This preview deployment is private. Please enter your developer passcode to continue:
+          </p>
+          <form onSubmit={(e) => {
+            e.preventDefault();
+            if (devPasswordInput === 'alchmate' || devPasswordInput === 'alchmate2026') {
+              localStorage.setItem('alchmate_dev_unlocked', 'true');
+              setIsDevUnlocked(true);
+            } else {
+              setDevError('Incorrect passcode. Try again.');
+            }
+          }} className="space-y-4">
+            <input
+              type="password"
+              placeholder="Enter passcode (default: alchmate)"
+              value={devPasswordInput}
+              onChange={(e) => { setDevPasswordInput(e.target.value); setDevError(null); }}
+              className="w-full bg-[#1b202c] border border-[#2e374d] rounded-xl px-4 py-3 text-white text-center font-mono font-bold focus:outline-none focus:border-amber-400 placeholder:text-neutral-600"
+              autoFocus
+            />
+            {devError && <p className="text-xs text-rose-400 font-bold">{devError}</p>}
+            <button
+              type="submit"
+              className="w-full bg-amber-500 hover:bg-amber-400 text-black font-extrabold py-3 rounded-xl text-sm transition-all shadow-lg shadow-amber-500/20 cursor-pointer"
+            >
+              Unlock Staging
+            </button>
+          </form>
+          <p className="text-[11px] text-neutral-500">
+            💡 Tip: You can bookmark with <code className="text-amber-400 font-mono">?pass=alchmate</code> to unlock automatically.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#0d0f12] text-[#e0e6ed] pb-24 font-sans">
