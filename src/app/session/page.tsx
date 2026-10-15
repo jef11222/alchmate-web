@@ -490,25 +490,25 @@ export default function SessionPage() {
                       )}
                     </td>
                     <td className="py-3 px-3 text-right text-neutral-300">
-                      {item.buy_price.toLocaleString()} gp
+                      {(item.buy_price || 0).toLocaleString()} gp
                     </td>
                     <td className="py-3 px-3 text-right text-neutral-400">
-                      {item.highalch.toLocaleString()} gp
+                      {(item.highalch || 0).toLocaleString()} gp
                     </td>
                     <td className="py-3 px-3 text-right font-bold text-emerald-400">
-                      +{item.profit.toLocaleString()} gp
+                      +{((item.profit || 0)).toLocaleString()} gp
                     </td>
                     <td className="py-3 px-3 text-right font-bold text-amber-400">
-                      +{(item.hourly_profit || item.profit * 1200).toLocaleString()}/hr
+                      +{(((item.hourly_profit || (item.profit || 0) * 1200))).toLocaleString()}/hr
                     </td>
                     <td className="py-3 px-3 text-right text-neutral-400">
-                      {item.volume.toLocaleString()}
+                      {(item.volume || 0).toLocaleString()}
                     </td>
                     <td className="py-3 px-4 text-center font-sans">
                       <button
                         onClick={() => {
-                          navigator.clipboard.writeText(item.buy_price.toString());
-                          showToast(`📋 Copied buy price: ${item.buy_price.toLocaleString()} gp`);
+                          navigator.clipboard.writeText(String(item.buy_price || 0));
+                          showToast(`📋 Copied buy price: ${(item.buy_price || 0).toLocaleString()} gp`);
                         }}
                         className="px-2.5 py-1 rounded bg-neutral-800 hover:bg-amber-500 hover:text-black text-neutral-200 border border-neutral-700 text-xs font-semibold transition"
                       >

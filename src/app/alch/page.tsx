@@ -681,7 +681,7 @@ export default function AlchPage() {
                             )}
                           </td>
                           <td className="py-3 px-3 text-right text-neutral-300">
-                            {item.highalch.toLocaleString()} gp
+                            {(item.highalch || 0).toLocaleString()} gp
                           </td>
                           <td className="py-3 px-3 text-right text-neutral-200">
                             <button
@@ -692,13 +692,13 @@ export default function AlchPage() {
                               className="hover:text-amber-400 underline decoration-dotted transition"
                               title="Click to copy buy price"
                             >
-                              {copiedId === item.id ? 'Copied!' : `${item.buy_price.toLocaleString()} gp`}
+                              {copiedId === item.id ? 'Copied!' : `${(item.buy_price || 0).toLocaleString()} gp`}
                             </button>
                           </td>
                           <td className={`py-3 px-3 text-right font-bold ${
-                            item.profit > 0 ? 'text-emerald-400' : 'text-rose-400'
+                            (item.profit || 0) > 0 ? 'text-emerald-400' : 'text-rose-400'
                           }`}>
-                            {item.profit > 0 ? `+${item.profit.toLocaleString()}` : item.profit.toLocaleString()} gp
+                            {(item.profit || 0) > 0 ? `+${(item.profit || 0).toLocaleString()}` : (item.profit || 0).toLocaleString()} gp
                           </td>
                           <td className="py-3 px-3 text-right font-bold text-amber-400">
                             +{formatGp(item.hourly_profit)}/hr
@@ -779,22 +779,22 @@ export default function AlchPage() {
                         {item.name}
                       </h3>
                       <span className="text-[11px] text-neutral-400 font-mono">
-                        Limit: {item.buy_limit || 70} | Vol: {item.volume.toLocaleString()}
+                        Limit: {item.buy_limit || 70} | Vol: {(item.volume || 0).toLocaleString()}
                       </span>
                     </div>
                     <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono font-bold">
-                      +{item.profit.toLocaleString()} gp
+                      +{((item.profit || 0)).toLocaleString()} gp
                     </span>
                   </div>
 
                   <div className="space-y-1 font-mono text-xs text-neutral-300">
                     <div className="flex justify-between">
                       <span className="text-neutral-400">Offer Buy:</span>
-                      <strong className="text-white">{item.buy_price.toLocaleString()} gp</strong>
+                      <strong className="text-white">{(item.buy_price || 0).toLocaleString()} gp</strong>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-neutral-400">High Alch:</span>
-                      <span className="text-neutral-300">{item.highalch.toLocaleString()} gp</span>
+                      <span className="text-neutral-300">{(item.highalch || 0).toLocaleString()} gp</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-neutral-400">4h Batch:</span>
@@ -1254,7 +1254,7 @@ export default function AlchPage() {
                   >
                     {(w308StaplesData as any[]).map((s) => (
                       <option key={s.id} value={s.name}>
-                        {s.name} (Alch: {s.highalch.toLocaleString()} gp)
+                        {s.name} (Alch: {(s.highalch || 0).toLocaleString()} gp)
                       </option>
                     ))}
                   </select>

@@ -1017,7 +1017,7 @@ export default function CraftingPage() {
           {guideView === 'progression' && (
             <div className="space-y-6">
               {/* Quests Skipping Grants Card */}
-              {guideData.quests && guideData.quests.length > 0 && (
+              {guideData?.quests && guideData.quests.length > 0 && (
                 <div className="bg-[#141721] p-5 rounded-2xl border border-emerald-500/20 space-y-3">
                   <h3 className="text-sm font-bold text-emerald-400 flex items-center gap-2">
                     <span>⚡</span> Quest Skips &amp; Fast-Track Milestones
@@ -1027,7 +1027,7 @@ export default function CraftingPage() {
                       <div key={q.name} className="bg-[#181d28] p-3 rounded-xl border border-[#2a3449] space-y-1">
                         <div className="flex items-center justify-between">
                           <span className="font-bold text-white text-xs">{q.name}</span>
-                          <span className="text-[10px] text-emerald-400 font-mono">+{q.xp.toLocaleString()} XP</span>
+                          <span className="text-[10px] text-emerald-400 font-mono">+{(q.xp || 0).toLocaleString()} XP</span>
                         </div>
                         <p className="text-[11px] text-amber-300/90 font-medium">{q.skip}</p>
                         <p className="text-[10px] text-neutral-400">{q.tip}</p>
@@ -1045,7 +1045,7 @@ export default function CraftingPage() {
                     <span>{guideSkill} 1–99 Training Progression &amp; Methods</span>
                   </span>
                   <span className="text-xs text-neutral-400 font-mono">
-                    Showing {(guideData.brackets || []).length} Optimal Training Methods
+                    Showing {(guideData?.brackets || []).length} Optimal Training Methods
                   </span>
                 </div>
 

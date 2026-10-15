@@ -10,10 +10,12 @@ interface ItemHoverCardProps {
   position?: { x: number; y: number };
 }
 
-export default function ItemHoverCard({ item, natPrice = 170 }: ItemHoverCardProps) {
-  const spread = Math.max(0, item.ask - item.bid);
-  const spreadPct = item.buy_price > 0 ? ((spread / item.buy_price) * 100).toFixed(1) : '0.0';
-  const batchProfit = item.profit * item.buy_limit;
+export default function ItemHoverCard({ item, natPrice = 170, position }: ItemHoverCardProps) {
+  const bidPrice = item.bid ?? item.buy_price ?? 0;
+  const askPrice = item.ask ?? item.buy_price ?? 0;
+  const spread = Math.max(0, askPrice - bidPrice);
+  const spreadPct = (item.buy_price || 0) > 0 ? ((spread / item.buy_price) * 100).toFixed(1) : '0.0';
+  const batchProfit = (item.profit || 0) * (item.buy_limit || 70);
   const tradesPerHour = (item.vol_5m_total || 0) * 12;
 
   // Freshness string
@@ -40,7 +42,7 @@ export default function ItemHoverCard({ item, natPrice = 170 }: ItemHoverCardPro
 
   // Warnings
   const warnings: string[] = [];
-  if (volBid === 0 && item.profit > 500) {
+  if (volBid === 0 && (item.profit || 0) > 500) {
     warnings.push(`Low 5m Liquidity: 0 items sold into bids in the last 5 minutes. Profit may reflect a temporary price anomaly.`);
   }
   if (Number(spreadPct) > 15) {
@@ -50,8 +52,20 @@ export default function ItemHoverCard({ item, natPrice = 170 }: ItemHoverCardPro
     warnings.push(`Stale Quote: Last recorded GE transaction was ${ageStr}. Double-check active GE price in-game.`);
   }
 
+  const containerStyle: React.CSSProperties = position
+    ? {
+        position: 'fixed',
+        left: `${position.x + 12}px`,
+        top: `${position.y + 12}px`,
+        zIndex: 50,
+      }
+    : {};
+
   return (
-    <div className="w-80 bg-neutral-900/98 backdrop-blur-md border border-neutral-700/80 rounded-xl p-4 shadow-2xl text-xs space-y-3 z-50 text-neutral-200 pointer-events-none transition-all">
+    <div 
+      style={containerStyle}
+      className="w-80 bg-neutral-900/98 backdrop-blur-md border border-neutral-700/80 rounded-xl p-4 shadow-2xl text-xs space-y-3 z-50 text-neutral-200 pointer-events-none transition-all"
+    >
       {/* Header */}
       <div className="flex items-start justify-between gap-2 border-b border-neutral-800 pb-2.5">
         <div className="flex items-center gap-2.5">
@@ -103,34 +117,34 @@ export default function ItemHoverCard({ item, natPrice = 170 }: ItemHoverCardPro
       <div className="space-y-1.5 font-mono text-[11px]">
         <div className="flex justify-between">
           <span className="text-neutral-400 font-sans">Target Offer (Bid):</span>
-          <span className="font-bold text-neutral-200">{item.bid.toLocaleString()} gp</span>
+          <span className="font-bold text-neutral-200">{bidPrice.toLocaleString()} gp</span>
         </div>
         <div className="flex justify-between">
           <span className="text-neutral-400 font-sans">Instant Buy (Ask):</span>
           <span className="text-neutral-300">
-            {item.ask.toLocaleString()} gp <span className="text-neutral-500 text-[10px]">({spreadPct}% sprd)</span>
+            {askPrice.toLocaleString()} gp <span className="text-neutral-500 text-[10px]">({spreadPct}% sprd)</span>
           </span>
         </div>
         <div className="flex justify-between">
           <span className="text-neutral-400 font-sans">High Alch Payout:</span>
-          <span className="font-bold text-amber-400">{item.highalch.toLocaleString()} gp</span>
+          <span className="font-bold text-amber-400">{(item.highalch || 0).toLocaleString()} gp</span>
         </div>
         <div className="flex justify-between">
           <span className="text-neutral-400 font-sans">Nature Rune Cost:</span>
-          <span className="text-neutral-400">{natPrice.toLocaleString()} gp</span>
+          <span className="text-neutral-400">{(natPrice || 0).toLocaleString()} gp</span>
         </div>
 
         <div className="border-t border-neutral-800/80 pt-1.5 flex justify-between text-xs">
           <span className="text-neutral-300 font-sans font-semibold">Net Profit / Alch:</span>
-          <span className={`font-bold ${item.profit >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-            {item.profit >= 0 ? `+${item.profit.toLocaleString()}` : item.profit.toLocaleString()} gp{' '}
-            <span className="text-[10px] font-normal">({item.roi >= 0 ? `+${item.roi.toFixed(1)}` : item.roi.toFixed(1)}%)</span>
+          <span className={`font-bold ${(item.profit || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+            {(item.profit || 0) >= 0 ? `+${(item.profit || 0).toLocaleString()}` : (item.profit || 0).toLocaleString()} gp{' '}
+            <span className="text-[10px] font-normal">({(item.roi || 0) >= 0 ? `+${(item.roi || 0).toFixed(1)}` : (item.roi || 0).toFixed(1)}%)</span>
           </span>
         </div>
         <div className="flex justify-between">
           <span className="text-neutral-400 font-sans">Hourly Rate (1.2k/hr):</span>
           <span className="font-bold text-emerald-400 font-mono">
-            +{(item.hourly_profit / 1000).toFixed(0)}k gp/hr
+            +{(((item.hourly_profit || (item.profit || 0) * 1200)) / 1000).toFixed(0)}k gp/hr
           </span>
         </div>
       </div>
@@ -139,7 +153,7 @@ export default function ItemHoverCard({ item, natPrice = 170 }: ItemHoverCardPro
       <div className="bg-neutral-950/70 border border-neutral-800/90 rounded-lg p-2.5 space-y-1 text-[11px] font-mono">
         <div className="flex justify-between">
           <span className="text-neutral-400 font-sans">24h Traded Volume:</span>
-          <span className="text-neutral-200">{item.volume.toLocaleString()} items</span>
+          <span className="text-neutral-200">{(item.volume || 0).toLocaleString()} items</span>
         </div>
         <div className="flex justify-between">
           <span className="text-neutral-400 font-sans">5m Sells into Bids:</span>
@@ -155,7 +169,7 @@ export default function ItemHoverCard({ item, natPrice = 170 }: ItemHoverCardPro
         </div>
         <div className="flex justify-between">
           <span className="text-neutral-400 font-sans">4h Buy Limit:</span>
-          <span className="text-neutral-200">{item.buy_limit.toLocaleString()} items</span>
+          <span className="text-neutral-200">{(item.buy_limit || 70).toLocaleString()} items</span>
         </div>
         <div className="flex justify-between pt-0.5 border-t border-neutral-850">
           <span className="text-neutral-400 font-sans">4h Batch Profit:</span>
