@@ -1,6 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
+import { supabase } from '../lib/supabase';
 
 export interface AlchItem {
   id: number;
@@ -320,12 +321,51 @@ export function AlchMateProvider({ children }: { children: React.ReactNode }) {
       }
 
       try {
-        const res = await fetch(`/api/sync?token=${encodeURIComponent(syncToken)}`);
-        if (!res.ok) return;
-        const data = await res.json();
+        let charactersData: any[] = [];
+        let sessionsData: any[] = [];
+
+        // 1. Direct Supabase Query (Zero Vercel Serverless Function Invocations)
+        if (supabase) {
+          try {
+            const { data: profile } = await supabase
+              .from('profiles')
+              .select('id')
+              .eq('sync_token', syncToken.trim())
+              .maybeSingle();
+
+            if (profile?.id) {
+              const [{ data: chars }, { data: sess }] = await Promise.all([
+                supabase
+                  .from('characters')
+                  .select('*')
+                  .eq('user_id', profile.id)
+                  .order('last_seen', { ascending: false }),
+                supabase
+                  .from('alch_sessions')
+                  .select('*')
+                  .eq('user_id', profile.id)
+                  .order('created_at', { ascending: false })
+                  .limit(50),
+              ]);
+              if (chars && chars.length > 0) charactersData = chars;
+              if (sess && sess.length > 0) sessionsData = sess;
+            }
+          } catch {}
+        }
+
+        // 2. Fallback to /api/sync if direct Supabase returned nothing
+        if (charactersData.length === 0) {
+          const res = await fetch(`/api/sync?token=${encodeURIComponent(syncToken)}`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data?.characters) charactersData = data.characters;
+            if (data?.sessions) sessionsData = data.sessions;
+          }
+        }
+
         if (!isMounted) return;
 
-        const currentHash = JSON.stringify(data?.characters || []) + (data?.sessions?.length || 0);
+        const currentHash = JSON.stringify(charactersData || []) + (sessionsData?.length || 0);
         if (currentHash !== lastDataHash) {
           lastDataHash = currentHash;
           lastActiveTime = Date.now();
@@ -334,21 +374,21 @@ export function AlchMateProvider({ children }: { children: React.ReactNode }) {
           consecutiveUnchangedCount++;
         }
 
-        if (data?.characters && Array.isArray(data.characters) && data.characters.length > 0) {
-          setSyncedCharacters(data.characters);
+        if (charactersData.length > 0) {
+          setSyncedCharacters(charactersData);
           setActiveAccount((prev) => {
-            if (!prev || prev === 'Main' || !data.characters.some((c: any) => c.rsn === prev)) {
-              return data.characters[0].rsn;
+            if (!prev || prev === 'Main' || !charactersData.some((c: any) => c.rsn === prev)) {
+              return charactersData[0].rsn;
             }
             return prev;
           });
         }
 
-        if (data?.sessions && Array.isArray(data.sessions) && data.sessions.length > 0) {
+        if (sessionsData.length > 0) {
           setSessionLog((prev) => {
             const existingIds = new Set(prev.map((s) => s.id));
             const newEntries: SessionEntry[] = [];
-            for (const s of data.sessions) {
+            for (const s of sessionsData) {
               const sid = String(s.id);
               if (!existingIds.has(sid)) {
                 newEntries.push({
