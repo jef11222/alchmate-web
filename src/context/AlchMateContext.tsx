@@ -286,17 +286,53 @@ export function AlchMateProvider({ children }: { children: React.ReactNode }) {
     } catch {}
   }, []);
 
-  // Background Cloud Sync Polling (every 6s)
+  // Background Cloud Sync Polling with Smart Visibility Sleep Mode & Idle Backoff
   useEffect(() => {
     if (!syncToken) return;
 
     let isMounted = true;
+    let timerId: any = null;
+    let lastActiveTime = Date.now();
+    let consecutiveUnchangedCount = 0;
+    let lastDataHash = '';
+
+    const getAdaptiveDelay = () => {
+      if (typeof document !== 'undefined' && document.hidden) {
+        return 60000;
+      }
+      const idleMinutes = (Date.now() - lastActiveTime) / 60000;
+      if (idleMinutes > 10) return 60000; // 60s if idle >10m
+      if (idleMinutes > 2 || consecutiveUnchangedCount > 6) return 25000; // 25s if no changes
+      return 10000; // 10s active normal polling
+    };
+
+    const scheduleNextPoll = () => {
+      if (timerId) clearTimeout(timerId);
+      const delay = getAdaptiveDelay();
+      timerId = setTimeout(pollSync, delay);
+    };
+
     const pollSync = async () => {
+      // Tab Sleep Mode: If minimized or background tab, pause execution
+      if (typeof document !== 'undefined' && document.hidden) {
+        scheduleNextPoll();
+        return;
+      }
+
       try {
         const res = await fetch(`/api/sync?token=${encodeURIComponent(syncToken)}`);
         if (!res.ok) return;
         const data = await res.json();
         if (!isMounted) return;
+
+        const currentHash = JSON.stringify(data?.characters || []) + (data?.sessions?.length || 0);
+        if (currentHash !== lastDataHash) {
+          lastDataHash = currentHash;
+          lastActiveTime = Date.now();
+          consecutiveUnchangedCount = 0;
+        } else {
+          consecutiveUnchangedCount++;
+        }
 
         if (data?.characters && Array.isArray(data.characters) && data.characters.length > 0) {
           setSyncedCharacters(data.characters);
@@ -338,19 +374,44 @@ export function AlchMateProvider({ children }: { children: React.ReactNode }) {
             return updated;
           });
         }
-      } catch {}
+      } catch {} finally {
+        if (isMounted) {
+          scheduleNextPoll();
+        }
+      }
     };
 
+    // Immediate initial sync
     pollSync();
-    const interval = setInterval(pollSync, 6000);
+
+    // Instant wake-up when user clicks back to this tab
+    const handleVisibilityChange = () => {
+      if (typeof document !== 'undefined' && !document.hidden) {
+        lastActiveTime = Date.now();
+        consecutiveUnchangedCount = 0;
+        if (timerId) clearTimeout(timerId);
+        pollSync();
+      }
+    };
+
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+    }
+
     return () => {
       isMounted = false;
-      clearInterval(interval);
+      if (timerId) clearTimeout(timerId);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      }
     };
-  }, [syncToken, activeAccount]);
+  }, [syncToken]);
 
   // Fetch prices from /api/prices
   const refreshPrices = useCallback(async () => {
+    if (typeof document !== 'undefined' && document.hidden) {
+      return;
+    }
     try {
       setLoading(true);
       const res = await fetch('/api/prices');

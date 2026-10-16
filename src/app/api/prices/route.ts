@@ -12,10 +12,16 @@ const MAPPING_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours for static mapping
 // Bond item ID
 const BOND_ITEM_ID = '13190';
 
+const CACHE_HEADERS = {
+  'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=120',
+  'CDN-Cache-Control': 'public, s-maxage=60, stale-while-revalidate=120',
+  'Vercel-CDN-Cache-Control': 'public, s-maxage=60, stale-while-revalidate=120',
+};
+
 export async function GET() {
   const now = Date.now();
   if (cachedData && now - lastFetchTime < CACHE_TTL_MS) {
-    return NextResponse.json(cachedData);
+    return NextResponse.json(cachedData, { headers: CACHE_HEADERS });
   }
 
   try {
@@ -215,10 +221,10 @@ export async function GET() {
     };
     lastFetchTime = now;
 
-    return NextResponse.json(cachedData);
+    return NextResponse.json(cachedData, { headers: CACHE_HEADERS });
   } catch (err: any) {
     console.error('Error fetching OSRS prices:', err);
-    if (cachedData) return NextResponse.json(cachedData);
+    if (cachedData) return NextResponse.json(cachedData, { headers: CACHE_HEADERS });
     return NextResponse.json({ error: 'Failed to fetch OSRS prices' }, { status: 500 });
   }
 }
