@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
+import { fetchWikiPrices } from '../lib/wikiPrices';
 
 export interface AlchItem {
   id: number;
@@ -486,22 +487,33 @@ export function AlchMateProvider({ children }: { children: React.ReactNode }) {
     };
   }, [syncToken]);
 
-  // Fetch prices from /api/prices
+  // Fetch prices (Local Wiki API direct / /api/prices fallback)
   const refreshPrices = useCallback(async () => {
     if (typeof document !== 'undefined' && document.hidden) {
       return;
     }
     try {
       setLoading(true);
-      const res = await fetch('/api/prices');
-      if (!res.ok) throw new Error('Wiki API error');
-      const data: PriceData = await res.json();
-      setPriceData(data);
-      if (data.nature_rune) {
-        setNatureRuneOverride((prev) => (prev === 170 ? data.nature_rune : prev));
+      let data: PriceData | null = null;
+      try {
+        const res = await fetch('/api/prices');
+        if (res.ok) {
+          data = await res.json();
+        }
+      } catch {}
+
+      if (!data) {
+        data = await fetchWikiPrices();
       }
-      setIsStaleData(data.is_stale || false);
-      setNextRefreshSec(60);
+
+      if (data) {
+        setPriceData(data);
+        if (data.nature_rune) {
+          setNatureRuneOverride((prev) => (prev === 170 ? data.nature_rune : prev));
+        }
+        setIsStaleData(data.is_stale || false);
+        setNextRefreshSec(60);
+      }
     } catch (e) {
       setIsStaleData(true);
     } finally {
