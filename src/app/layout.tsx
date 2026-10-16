@@ -1,9 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { AlchMateProvider } from "../context/AlchMateContext";
-import StagingGate from "../components/StagingGate";
 import Navbar from "../components/Navbar";
-import CommunityTierBanner from "../components/CommunityTierBanner";
 import PlayerHUD from "../components/PlayerHUD";
 
 export const metadata: Metadata = {
@@ -31,14 +29,11 @@ export default function RootLayout({
     <html lang="en" className="dark">
       <body className="min-h-screen bg-[#0d0f12] text-[#e0e6ed] antialiased flex flex-col">
         <AlchMateProvider>
-          <StagingGate>
-            <CommunityTierBanner />
-            <Navbar />
-            <main className="flex-1 pb-16">
-              {children}
-            </main>
-            <PlayerHUD />
-          </StagingGate>
+          <Navbar />
+          <main className="flex-1 pb-16">
+            {children}
+          </main>
+          <PlayerHUD />
         </AlchMateProvider>
       </body>
     </html>

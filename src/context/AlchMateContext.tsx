@@ -1,7 +1,6 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
-import { supabase } from '../lib/supabase';
 import { fetchWikiPrices } from '../lib/wikiPrices';
 
 export interface AlchItem {
@@ -338,7 +337,11 @@ export function AlchMateProvider({ children }: { children: React.ReactNode }) {
         try {
           const localController = new AbortController();
           const localTimeout = setTimeout(() => localController.abort(), 1200);
-          const localRes = await fetch('http://127.0.0.1:18833/api/sync', {
+          const syncUrl = typeof window !== 'undefined' && window.location.origin.includes('127.0.0.1')
+            ? '/api/sync'
+            : 'http://127.0.0.1:18833/api/sync';
+
+          const localRes = await fetch(syncUrl, {
             method: 'GET',
             headers: { Accept: 'application/json' },
             signal: localController.signal,
@@ -347,60 +350,23 @@ export function AlchMateProvider({ children }: { children: React.ReactNode }) {
 
           if (localRes.ok) {
             const localData = await localRes.json();
-            if (localData?.characters && Array.isArray(localData.characters) && localData.characters.length > 0) {
-              charactersData = localData.characters;
-              if (localData?.sessions && Array.isArray(localData.sessions)) {
+            if (localData?.source === 'local_embedded_server' || localData?.success === true) {
+              sourceIsLocal = true;
+              if (Array.isArray(localData.characters)) {
+                charactersData = localData.characters;
+              }
+              if (Array.isArray(localData.sessions)) {
                 sessionsData = localData.sessions;
               }
-              sourceIsLocal = true;
             }
           }
         } catch {
-          // Local server offline or PNA/mixed content blocked, proceed to cloud sync
+          // Local server offline
         }
 
         isCurrentlyLocal = sourceIsLocal;
         if (isMounted) {
           setIsLocalServer(sourceIsLocal);
-        }
-
-        // 1. Direct Supabase Query (Zero Vercel Serverless Function Invocations)
-        if (!sourceIsLocal && syncToken && syncToken.trim() && supabase) {
-          try {
-            const { data: profile } = await supabase
-              .from('profiles')
-              .select('id')
-              .eq('sync_token', syncToken.trim())
-              .maybeSingle();
-
-            if (profile?.id) {
-              const [{ data: chars }, { data: sess }] = await Promise.all([
-                supabase
-                  .from('characters')
-                  .select('*')
-                  .eq('user_id', profile.id)
-                  .order('last_seen', { ascending: false }),
-                supabase
-                  .from('alch_sessions')
-                  .select('*')
-                  .eq('user_id', profile.id)
-                  .order('created_at', { ascending: false })
-                  .limit(50),
-              ]);
-              if (chars && chars.length > 0) charactersData = chars;
-              if (sess && sess.length > 0) sessionsData = sess;
-            }
-          } catch {}
-        }
-
-        // 2. Fallback to /api/sync if direct Supabase returned nothing
-        if (!sourceIsLocal && syncToken && syncToken.trim() && charactersData.length === 0) {
-          const res = await fetch(`/api/sync?token=${encodeURIComponent(syncToken)}`);
-          if (res.ok) {
-            const data = await res.json();
-            if (data?.characters) charactersData = data.characters;
-            if (data?.sessions) sessionsData = data.sessions;
-          }
         }
 
         if (!isMounted) return;
@@ -485,26 +451,16 @@ export function AlchMateProvider({ children }: { children: React.ReactNode }) {
         document.removeEventListener('visibilitychange', handleVisibilityChange);
       }
     };
-  }, [syncToken]);
+  }, []);
 
-  // Fetch prices (Local Wiki API direct / /api/prices fallback)
+  // Fetch prices (Direct Weird Gloop Wiki API)
   const refreshPrices = useCallback(async () => {
     if (typeof document !== 'undefined' && document.hidden) {
       return;
     }
     try {
       setLoading(true);
-      let data: PriceData | null = null;
-      try {
-        const res = await fetch('/api/prices');
-        if (res.ok) {
-          data = await res.json();
-        }
-      } catch {}
-
-      if (!data) {
-        data = await fetchWikiPrices();
-      }
+      const data = await fetchWikiPrices();
 
       if (data) {
         setPriceData(data);

@@ -16,20 +16,18 @@ export async function fetchWikiPrices(): Promise<any> {
   }
 
   try {
-    const headers = { 'User-Agent': 'AlchMate-Local/1.0 (contact: github.com/jef11222)' };
-
     let mapping = cachedMapping;
     const shouldFetchMapping = !cachedMapping || (now - lastMappingFetchTime >= MAPPING_TTL_MS);
 
     const fetches: Promise<any>[] = [
-      fetch('https://prices.runescape.wiki/api/v1/osrs/latest', { headers }),
-      fetch('https://prices.runescape.wiki/api/v1/osrs/volumes', { headers }),
-      fetch('https://prices.runescape.wiki/api/v1/osrs/5m', { headers }).catch(() => ({ json: async () => ({ data: {} }) })),
-      fetch(`https://prices.runescape.wiki/api/v1/osrs/timeseries?timestep=1h&id=${BOND_ITEM_ID}`, { headers }).catch(() => ({ json: async () => ({ data: [] }) }))
+      fetch('https://prices.runescape.wiki/api/v1/osrs/latest'),
+      fetch('https://prices.runescape.wiki/api/v1/osrs/volumes'),
+      fetch('https://prices.runescape.wiki/api/v1/osrs/5m').catch(() => ({ json: async () => ({ data: {} }) })),
+      fetch(`https://prices.runescape.wiki/api/v1/osrs/timeseries?timestep=1h&id=${BOND_ITEM_ID}`).catch(() => ({ json: async () => ({ data: [] }) }))
     ];
 
     if (shouldFetchMapping) {
-      fetches.push(fetch('https://prices.runescape.wiki/api/v1/osrs/mapping', { headers }).catch(() => null));
+      fetches.push(fetch('https://prices.runescape.wiki/api/v1/osrs/mapping').catch(() => null));
     }
 
     const results = await Promise.all(fetches);

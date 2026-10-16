@@ -1,10 +1,9 @@
 'use client';
 
-import React, { useState } from 'react';
+import React from 'react';
 import Link from 'next/link';
 import { Shield, Coins, Ticket, User, Layers, Zap } from 'lucide-react';
 import { useAlchMate } from '../context/AlchMateContext';
-import LinkRuneLiteModal from './LinkRuneLiteModal';
 
 function formatGp(val: number): string {
   if (!val || val === 0) return '0 gp';
@@ -15,7 +14,6 @@ function formatGp(val: number): string {
 }
 
 export default function PlayerHUD() {
-  const [showLinkModal, setShowLinkModal] = useState(false);
   const { 
     priceData, 
     userCoins, 
@@ -24,7 +22,6 @@ export default function PlayerHUD() {
     activeAccount, 
     setActiveAccount, 
     allAccounts,
-    syncToken,
     isLocalServer
   } = useAlchMate();
 
@@ -37,7 +34,7 @@ export default function PlayerHUD() {
         {/* Account Switcher */}
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1.5 text-neutral-300 font-bold bg-[#181d28] px-2.5 py-1 rounded-lg border border-[#2a3449]">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className={`w-2 h-2 rounded-full ${isLocalServer ? 'bg-emerald-400 animate-pulse' : 'bg-neutral-500'}`} />
             <User className="w-3.5 h-3.5 text-neutral-400" />
             <select
               value={activeAccount}
@@ -94,26 +91,20 @@ export default function PlayerHUD() {
             </div>
           </Link>
 
-          {/* Link RuneLite / Local Server Button */}
-          <button
-            onClick={() => setShowLinkModal(true)}
-            className={`flex items-center gap-1.5 px-3 py-1 rounded-lg transition-all font-mono font-bold cursor-pointer ${
+          {/* Local Server Live Status */}
+          <div
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-lg transition-all font-mono font-bold ${
               isLocalServer
-                ? 'bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/40 text-emerald-400'
-                : 'bg-[#181d28] hover:bg-[#202738] border border-blue-500/40 text-blue-400 hover:text-blue-300'
+                ? 'bg-emerald-500/10 border border-emerald-500/40 text-emerald-400'
+                : 'bg-[#181d28] border border-[#2a3449] text-neutral-400'
             }`}
-            title={isLocalServer ? 'Connected directly to RuneLite Local Server (127.0.0.1:18833)' : 'Get your Cloud Sync Key to link RuneLite'}
+            title={isLocalServer ? 'Connected directly to RuneLite Local Server (127.0.0.1:18833)' : 'RuneLite Local Server Offline (127.0.0.1:18833)'}
           >
-            <Zap className={`w-3.5 h-3.5 ${isLocalServer ? 'text-emerald-400 animate-pulse' : 'text-amber-400'}`} />
-            <span>{isLocalServer ? 'Local Server (Active)' : 'Link RuneLite'}</span>
-          </button>
+            <Zap className={`w-3.5 h-3.5 ${isLocalServer ? 'text-emerald-400 animate-pulse' : 'text-neutral-500'}`} />
+            <span>{isLocalServer ? 'Local Server (127.0.0.1:18833)' : 'RuneLite Offline'}</span>
+          </div>
         </div>
       </div>
-
-      <LinkRuneLiteModal
-        isOpen={showLinkModal}
-        onClose={() => setShowLinkModal(false)}
-      />
     </div>
   );
 }

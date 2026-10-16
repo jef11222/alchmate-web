@@ -17,12 +17,9 @@ import {
   Sliders, 
   AlertTriangle,
   Menu,
-  X,
-  Zap,
-  Key
+  X
 } from 'lucide-react';
 import { useAlchMate } from '../context/AlchMateContext';
-import LinkRuneLiteModal from './LinkRuneLiteModal';
 
 export default function Navbar() {
   const pathname = usePathname();
@@ -40,11 +37,12 @@ export default function Navbar() {
     ownedNats,
     explorersRing,
     toastMsg,
-    showCommunityLinks
+    showCommunityLinks,
+    isLocalServer,
+    activeAccount
   } = useAlchMate();
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [showLinkModal, setShowLinkModal] = useState(false);
 
   // Keyboard shortcut Ctrl+K to focus search
   useEffect(() => {
@@ -145,15 +143,18 @@ export default function Navbar() {
               <span className="hidden md:inline">{loading ? 'Syncing...' : `${nextRefreshSec}s`}</span>
             </button>
 
-            {/* Link RuneLite Cloud Button */}
-            <button
-              onClick={() => setShowLinkModal(true)}
-              className="hidden sm:flex bg-[#181d28] hover:bg-[#202738] border border-blue-500/40 text-blue-400 hover:text-blue-300 px-2.5 py-1.5 rounded-lg items-center gap-1.5 text-xs font-mono font-bold shrink-0 cursor-pointer transition shadow-sm"
-              title="Get your Cloud Sync Key to link RuneLite"
+            {/* Local RuneLite Status Indicator */}
+            <div 
+              className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-mono font-bold shrink-0 ${
+                isLocalServer 
+                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                  : 'bg-[#181d28] border-[#2a3449] text-neutral-400'
+              }`}
+              title={isLocalServer ? 'Connected directly to Local RuneLite (127.0.0.1:18833)' : 'Waiting for Local RuneLite on 127.0.0.1:18833'}
             >
-              <Zap className="w-3.5 h-3.5 text-amber-400" />
-              <span>Link RuneLite</span>
-            </button>
+              <span className={`w-2 h-2 rounded-full ${isLocalServer ? 'bg-emerald-400 animate-pulse' : 'bg-neutral-500'}`} />
+              <span>{isLocalServer ? (activeAccount ? activeAccount : 'Local Hub') : 'RuneLite Offline'}</span>
+            </div>
 
             {/* Stale Data Indicator if offline */}
             {isStaleData && (
@@ -225,12 +226,6 @@ export default function Navbar() {
           <span>{toastMsg}</span>
         </div>
       )}
-
-      {/* Link RuneLite Cloud Modal */}
-      <LinkRuneLiteModal
-        isOpen={showLinkModal}
-        onClose={() => setShowLinkModal(false)}
-      />
     </>
   );
 }
