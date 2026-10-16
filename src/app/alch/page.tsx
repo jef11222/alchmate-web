@@ -115,7 +115,10 @@ export default function AlchPage() {
     toggleCart,
     clearCart,
     copyBankTags,
+    timers,
     addTimer,
+    addSessionEntry,
+    activeAccount,
     showToast
   } = useAlchMate();
 
@@ -168,10 +171,21 @@ export default function AlchPage() {
 
         const profit = item.highalch - targetBuy - effectiveNatPrice;
         const hourlyProfit = profit * 1200;
-        const roi = targetBuy > 0 ? (profit / targetBuy) * 100 : 0;
-        const effectiveLimit = item.buy_limit || 70;
+        const totalCost = targetBuy + effectiveNatPrice;
+        const roi = totalCost > 0 ? (profit / totalCost) * 100 : 0;
+
+        const activeTimer = timers?.find(
+          (t) => t.id === item.id && (!activeAccount || activeAccount === 'All' || t.account === activeAccount) && t.expiresAt > Date.now()
+        );
+        const rawLimit = item.buy_limit || 70;
+        const remAfterTimer = activeTimer ? Math.max(0, rawLimit - (activeTimer.qtyBought || 0)) : rawLimit;
+        const effectiveLimit = item.volume > 0 ? Math.min(remAfterTimer, item.volume) : remAfterTimer;
         const batchProfit = profit * effectiveLimit;
-        const maxAfford = targetBuy > 0 ? Math.min(effectiveLimit, Math.floor(cashStack / targetBuy)) : 0;
+        const maxAfford = unlimitedBudget
+          ? effectiveLimit
+          : targetBuy > 0
+          ? Math.min(effectiveLimit, Math.floor(cashStack / targetBuy))
+          : 0;
 
         let fillConfidence: 'high' | 'steady' | 'risky' = 'steady';
         if (item.vol_5m_bid >= 8 || item.speed_score >= 3) {
@@ -186,6 +200,7 @@ export default function AlchPage() {
           profit,
           hourly_profit: hourlyProfit,
           roi,
+          effective_limit: effectiveLimit,
           batch_profit: batchProfit,
           max_afford: maxAfford,
           fill_confidence: fillConfidence,
@@ -564,6 +579,35 @@ export default function AlchPage() {
                 </select>
               </div>
 
+              {/* Cash Stack / Budget Toolbar matching desktop gui.py */}
+              <div className="flex items-center gap-2 bg-[#181d28] border border-[#2a3449] rounded-lg px-2.5 py-1.5 font-semibold">
+                <span className="text-neutral-400">Cash:</span>
+                <input
+                  type="text"
+                  value={unlimitedBudget ? '∞' : cashStack.toLocaleString()}
+                  onChange={(e) => {
+                    const clean = e.target.value.replace(/,/g, '').trim();
+                    const num = parseInt(clean, 10);
+                    if (!isNaN(num) && num >= 0) {
+                      setCashStack(num);
+                      setUnlimitedBudget(false);
+                    }
+                  }}
+                  disabled={unlimitedBudget}
+                  className={`w-24 bg-transparent text-emerald-400 font-bold focus:outline-none ${unlimitedBudget ? 'opacity-50' : ''}`}
+                  placeholder="Cash GP"
+                />
+                <label className="flex items-center gap-1 text-[11px] text-neutral-400 cursor-pointer hover:text-white border-l border-[#2a3449] pl-2">
+                  <input
+                    type="checkbox"
+                    checked={unlimitedBudget}
+                    onChange={(e) => setUnlimitedBudget(e.target.checked)}
+                    className="rounded bg-[#202738] border-neutral-600 text-amber-500 focus:ring-0 cursor-pointer"
+                  />
+                  <span>Unlimited</span>
+                </label>
+              </div>
+
               {/* Members / F2P Switcher */}
               <div className="flex items-center gap-1 bg-[#181d28] border border-[#2a3449] rounded-lg p-0.5">
                 <button
@@ -650,10 +694,13 @@ export default function AlchPage() {
                       <th className="py-3 px-4 font-sans font-semibold">Item Name</th>
                       <th className="py-3 px-3 text-right">High Alch</th>
                       <th className="py-3 px-3 text-right">Offer (Buy)</th>
+                      <th className="py-3 px-3 text-right">Instant (Ask)</th>
                       <th className="py-3 px-3 text-right text-emerald-400 font-bold">Profit / Ea</th>
                       <th className="py-3 px-3 text-right text-amber-400 font-bold">Profit / Hr</th>
-                      <th className="py-3 px-3 text-right">4h Limit</th>
+                      <th className="py-3 px-3 text-right">Limit (Rem)</th>
+                      <th className="py-3 px-3 text-right text-sky-400 font-bold">Max Afford</th>
                       <th className="py-3 px-3 text-right text-cyan-400 font-bold">Batch Profit</th>
+                      <th className="py-3 px-3 text-right text-neutral-400">24h Vol</th>
                       <th className="py-3 px-3 text-center">Fill Speed</th>
                       <th className="py-3 px-3 text-center">Timer</th>
                     </tr>
@@ -715,6 +762,9 @@ export default function AlchPage() {
                               {copiedId === item.id ? 'Copied!' : `${(item.buy_price || 0).toLocaleString()} gp`}
                             </button>
                           </td>
+                          <td className="py-3 px-3 text-right text-neutral-400">
+                            {(item.ask || 0).toLocaleString()} gp
+                          </td>
                           <td className={`py-3 px-3 text-right font-bold ${
                             (item.profit || 0) > 0 ? 'text-emerald-400' : 'text-rose-400'
                           }`}>
@@ -724,10 +774,16 @@ export default function AlchPage() {
                             +{formatGp(item.hourly_profit)}/hr
                           </td>
                           <td className="py-3 px-3 text-right text-neutral-400">
-                            {item.buy_limit?.toLocaleString() || '70'}
+                            {item.effective_limit?.toLocaleString() || item.buy_limit?.toLocaleString() || '70'}
+                          </td>
+                          <td className="py-3 px-3 text-right font-bold text-sky-400">
+                            {unlimitedBudget ? '∞' : (item.max_afford || 0).toLocaleString()}
                           </td>
                           <td className="py-3 px-3 text-right font-bold text-cyan-400">
                             +{formatGp(item.batch_profit)}
+                          </td>
+                          <td className="py-3 px-3 text-right text-neutral-400">
+                            {item.volume ? formatGp(item.volume) : '0'}
                           </td>
                           <td className="py-3 px-3 text-center">
                             <span className={`text-[10px] px-2 py-0.5 rounded-full border font-semibold ${
@@ -813,8 +869,16 @@ export default function AlchPage() {
                       <strong className="text-white">{(item.buy_price || 0).toLocaleString()} gp</strong>
                     </div>
                     <div className="flex justify-between">
+                      <span className="text-neutral-400">Instant (Ask):</span>
+                      <span className="text-neutral-300">{(item.ask || 0).toLocaleString()} gp</span>
+                    </div>
+                    <div className="flex justify-between">
                       <span className="text-neutral-400">High Alch:</span>
                       <span className="text-neutral-300">{(item.highalch || 0).toLocaleString()} gp</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-neutral-400">Max Afford:</span>
+                      <strong className="text-sky-400">{unlimitedBudget ? '∞' : (item.max_afford || 0).toLocaleString()}</strong>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-neutral-400">4h Batch:</span>
@@ -1463,14 +1527,34 @@ export default function AlchPage() {
                 <button
                   onClick={() => {
                     if (cartItems.length === 0) return;
-                    cartItems.forEach((ci) => addTimer(ci));
-                    showToast(`⏱️ Started 4h timers for ${cartItems.length} cart items!`);
+                    cartItems.forEach((ci) => {
+                      addTimer(ci);
+                      if (addSessionEntry) {
+                        const limit = ci.buy_limit || ci.limit || 70;
+                        const buyP = ci.buy_price || ci.target_bid || 0;
+                        const profit = ci.profit || ci.profit_ea || 0;
+                        addSessionEntry({
+                          account: activeAccount || 'Default',
+                          itemId: ci.id,
+                          itemName: ci.name,
+                          qty: limit,
+                          price: buyP,
+                          natPrice: effectiveNatPrice,
+                          alchVal: ci.highalch || 0,
+                          netProfit: profit * limit,
+                          totalCoins: cashStack,
+                          role: 'alch',
+                          magicXp: limit * 65,
+                        });
+                      }
+                    });
+                    showToast(`⏱️ Started 4h timers & logged ${cartItems.length} items to session!`);
                   }}
                   disabled={cartItems.length === 0}
                   className="bg-emerald-600/20 hover:bg-emerald-600/30 disabled:opacity-40 text-emerald-300 border border-emerald-500/30 px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition cursor-pointer"
                 >
                   <Clock className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Log Cart (Start 4h Timers)</span>
+                  <span>Log Cart (Timers + Session)</span>
                 </button>
                 <button
                   onClick={clearCart}

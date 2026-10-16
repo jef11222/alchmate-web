@@ -252,12 +252,16 @@ export function AlchMateProvider({ children }: { children: React.ReactNode }) {
       if (token) setSyncToken(token);
 
       const savedCoins = localStorage.getItem('alchmate_coins');
-      if (savedCoins) setUserCoins(Number(savedCoins));
+      if (savedCoins) {
+        const nCoins = Number(savedCoins);
+        setUserCoins(nCoins);
+        if (nCoins > 0) setCashStack(nCoins);
+      }
 
       const savedNats = localStorage.getItem('alchmate_nats');
       if (savedNats) setUserNats(Number(savedNats));
 
-      const savedBatch = localStorage.getItem('alchmate_batch');
+      const savedBatch = localStorage.getItem('alchmate_batch') || localStorage.getItem('alchmate_batch_val');
       if (savedBatch) setUserBatchValue(Number(savedBatch));
     } catch {}
   }, []);
@@ -287,10 +291,14 @@ export function AlchMateProvider({ children }: { children: React.ReactNode }) {
             if (current.coins !== undefined) {
               const syncedCoins = Number(current.coins);
               setUserCoins(syncedCoins);
+              if (syncedCoins > 0) {
+                setCashStack(syncedCoins);
+              }
               localStorage.setItem('alchmate_coins', String(syncedCoins));
               if (current.total_wealth !== undefined) {
                 const syncedBatch = Math.max(0, Number(current.total_wealth) - syncedCoins);
                 setUserBatchValue(syncedBatch);
+                localStorage.setItem('alchmate_batch', String(syncedBatch));
                 localStorage.setItem('alchmate_batch_val', String(syncedBatch));
               }
             }
@@ -383,8 +391,9 @@ export function AlchMateProvider({ children }: { children: React.ReactNode }) {
 
   // Total Net Worth
   const totalNetWorth = useMemo(() => {
-    return userCoins + userNats * effectiveNatPrice + userBatchValue;
-  }, [userCoins, userNats, effectiveNatPrice, userBatchValue]);
+    const natAssetPrice = priceData?.nature_rune || natureRuneOverride || 170;
+    return userCoins + (userNats * natAssetPrice) + userBatchValue;
+  }, [userCoins, userNats, priceData, natureRuneOverride, userBatchValue]);
 
   // List of all active accounts across timers and session
   const allAccounts = useMemo(() => {

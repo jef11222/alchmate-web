@@ -26,17 +26,6 @@ export async function POST(req: NextRequest) {
     
     // Support both Java plugin camelCase and web snake_case
     const rsn = (body.rsn || body.account || '').toString().trim();
-    const coins = body.coins !== undefined ? Number(body.coins) : 0;
-    const nature_runes = body.nature_runes !== undefined 
-      ? Number(body.nature_runes) 
-      : (body.natureRunes !== undefined ? Number(body.natureRunes) : 0);
-    const total_wealth = body.total_wealth !== undefined 
-      ? Number(body.total_wealth) 
-      : (body.totalWealth !== undefined ? Number(body.totalWealth) : 0);
-    const world = body.world ? Number(body.world) : 308;
-    const is_members = body.is_members !== undefined 
-      ? Boolean(body.is_members) 
-      : (body.isMembers !== undefined ? Boolean(body.isMembers) : false);
     const alchs = Array.isArray(body.alchs) ? body.alchs : [];
 
     if (!rsn) {
@@ -47,65 +36,105 @@ export async function POST(req: NextRequest) {
 
     // Verify or auto-provision profile for this sync_token
     if (token) {
+      const cleanToken = token.trim();
       const { data: profile } = await supabaseAdmin
         .from('profiles')
         .select('id')
-        .eq('sync_token', token)
-        .single();
+        .eq('sync_token', cleanToken)
+        .maybeSingle();
 
       if (profile) {
         userId = profile.id;
       } else {
-        const { data: newProfile } = await supabaseAdmin
-          .from('profiles')
-          .insert({ sync_token: token })
-          .select('id')
-          .single();
-        if (newProfile) {
-          userId = newProfile.id;
+        const anonEmail = `${cleanToken.replace(/[^a-zA-Z0-9_-]/g, '')}@anon.alchmate.local`;
+        const { data: authUser } = await supabaseAdmin.auth.admin.createUser({
+          email: anonEmail,
+          email_confirm: true,
+          user_metadata: { sync_token: cleanToken },
+        });
+
+        if (authUser?.user) {
+          const { data: newProfile } = await supabaseAdmin
+            .from('profiles')
+            .upsert({
+              id: authUser.user.id,
+              sync_token: cleanToken,
+            })
+            .select('id')
+            .maybeSingle();
+          if (newProfile) {
+            userId = newProfile.id;
+          }
         }
       }
     }
 
-    // 1. Upsert Character Status
-    if (userId) {
-      await supabaseAdmin.from('characters').upsert(
-        {
-          user_id: userId,
-          rsn,
-          coins,
-          nature_runes,
-          total_wealth,
-          world,
-          is_members,
-          last_seen: new Date().toISOString(),
-        },
-        { onConflict: 'user_id,rsn' }
-      );
+    if (!userId) {
+      return NextResponse.json({ error: 'Unable to resolve or provision user profile' }, { status: 401 });
     }
 
-    // 2. Insert Batch Alch Logs
-    if (alchs.length > 0 && userId) {
+    // 1. Fetch existing character to prevent partial syncs (e.g. inventory/alch events) from clobbering state
+    const { data: existingChar } = await supabaseAdmin
+      .from('characters')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('rsn', rsn)
+      .maybeSingle();
+
+    const rawCoins = body.coins;
+    const rawNats = body.nature_runes ?? body.natureRunes;
+    const rawWealth = body.total_wealth ?? body.totalWealth;
+    const rawWorld = body.world;
+    const rawIsMembers = body.is_members ?? body.isMembers;
+
+    const coins = rawCoins !== undefined ? Number(rawCoins) : (existingChar?.coins ?? 0);
+    const nature_runes = rawNats !== undefined ? Number(rawNats) : (existingChar?.nature_runes ?? 0);
+    const total_wealth = (rawWealth !== undefined && Number(rawWealth) > 0)
+      ? Number(rawWealth)
+      : Math.max(coins, existingChar?.total_wealth ?? coins);
+    const world = rawWorld !== undefined ? Number(rawWorld) : (existingChar?.world ?? 308);
+    const is_members = rawIsMembers !== undefined ? Boolean(rawIsMembers) : (existingChar?.is_members ?? false);
+
+    // Upsert Character Status
+    await supabaseAdmin.from('characters').upsert(
+      {
+        user_id: userId,
+        rsn,
+        coins,
+        nature_runes,
+        total_wealth,
+        world,
+        is_members,
+        last_seen: new Date().toISOString(),
+      },
+      { onConflict: 'user_id,rsn' }
+    );
+
+    // 2. Insert Batch Alch Logs (use ?? so item_id: 0 is never coerced to undefined!)
+    if (alchs.length > 0) {
       const insertRows = alchs.map((a: any) => ({
         user_id: userId,
         rsn,
-        item_id: a.item_id || a.itemId,
-        item_name: a.item_name || a.itemName,
-        qty: a.qty || a.quantity || 1,
-        buy_price: a.buy_price || a.buyPrice || 0,
-        nat_price: a.nat_price || a.natPrice || 0,
-        alch_val: a.alch_val || a.alch_value || a.alchVal || 0,
-        profit: a.profit || 0,
-        xp: a.xp || a.magic_xp || a.magicXp || 0,
-        cost_basis_type: a.cost_basis_type || a.costBasis || 'GE',
+        item_id: a.item_id ?? a.itemId ?? 0,
+        item_name: a.item_name ?? a.itemName ?? 'Unknown Item',
+        qty: a.qty ?? a.quantity ?? 1,
+        buy_price: a.buy_price ?? a.buyPrice ?? 0,
+        nat_price: a.nat_price ?? a.natPrice ?? 0,
+        alch_val: a.alch_val ?? a.alch_value ?? a.alchVal ?? 0,
+        profit: a.profit ?? 0,
+        xp: a.xp ?? a.magic_xp ?? a.magicXp ?? ((a.qty ?? 1) * 65),
+        cost_basis_type: a.cost_basis_type ?? a.costBasis ?? 'GE',
       }));
 
-      await supabaseAdmin.from('alch_sessions').insert(insertRows);
+      const { error: sessErr } = await supabaseAdmin.from('alch_sessions').insert(insertRows);
+      if (sessErr) {
+        console.error('Failed to insert alch_sessions:', sessErr.message);
+      }
 
       // 3. Update Daily Stats Rollup
-      const totalBatchProfit = alchs.reduce((sum: number, a: any) => sum + (a.profit || 0), 0);
-      const totalBatchAlchs = alchs.reduce((sum: number, a: any) => sum + (a.qty || 0), 0);
-      const totalBatchXp = alchs.reduce((sum: number, a: any) => sum + (a.xp || 0), 0);
+      const totalBatchProfit = alchs.reduce((sum: number, a: any) => sum + (Number(a.profit) || 0), 0);
+      const totalBatchAlchs = alchs.reduce((sum: number, a: any) => sum + (Number(a.qty || a.quantity) || 1), 0);
+      const totalBatchXp = alchs.reduce((sum: number, a: any) => sum + (Number(a.xp || a.magic_xp) || 65), 0);
 
       const today = new Date().toISOString().split('T')[0];
 
@@ -115,7 +144,7 @@ export async function POST(req: NextRequest) {
         .eq('user_id', userId)
         .eq('rsn', rsn)
         .eq('date', today)
-        .single();
+        .maybeSingle();
 
       if (existingDay) {
         await supabaseAdmin
@@ -168,11 +197,32 @@ export async function GET(req: NextRequest) {
     }
 
     // Find profile
-    const { data: profile } = await supabaseAdmin
+    let { data: profile } = await supabaseAdmin
       .from('profiles')
       .select('id')
-      .eq('sync_token', token)
-      .single();
+      .eq('sync_token', token.trim())
+      .maybeSingle();
+
+    if (!profile) {
+      const cleanToken = token.trim();
+      const anonEmail = `${cleanToken.replace(/[^a-zA-Z0-9_-]/g, '')}@anon.alchmate.local`;
+      const { data: authUser } = await supabaseAdmin.auth.admin.createUser({
+        email: anonEmail,
+        email_confirm: true,
+        user_metadata: { sync_token: cleanToken },
+      });
+      if (authUser?.user) {
+        const { data: newProfile } = await supabaseAdmin
+          .from('profiles')
+          .upsert({
+            id: authUser.user.id,
+            sync_token: cleanToken,
+          })
+          .select('id')
+          .maybeSingle();
+        profile = newProfile;
+      }
+    }
 
     if (!profile) {
       return NextResponse.json({ 

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useAlchMate } from '@/context/AlchMateContext';
 
 const CUSHION_OPTIONS = [
@@ -47,7 +47,7 @@ function parseGp(val: string | number): number {
 }
 
 export default function BondRoadmapPage() {
-  const { priceData, loading, refreshPrices, showToast, totalNetWorth, userCoins } = useAlchMate();
+  const { priceData, loading, refreshPrices, showToast, totalNetWorth, userCoins, sessionLog } = useAlchMate();
 
   // Market Bond Data
   const bond = priceData?.bond;
@@ -59,10 +59,21 @@ export default function BondRoadmapPage() {
   const dailyVol = bond?.daily_vol || 12500;
 
   // Custom User Inputs
-  const [wealthInput, setWealthInput] = useState<string>('5,000,000');
+  const [wealthInput, setWealthInput] = useState<string>('0');
+  const [hasManuallyEditedWealth, setHasManuallyEditedWealth] = useState(false);
   const [cushion, setCushion] = useState<number>(8000000);
   const [playtimeHours, setPlaytimeHours] = useState<number>(4);
   const [earningMethod, setEarningMethod] = useState<number>(780000); // 780k default F2P
+
+  // Auto-sync wealthInput whenever totalNetWorth or userCoins updates from Cloud Sync
+  useEffect(() => {
+    if (!hasManuallyEditedWealth) {
+      const val = totalNetWorth > 0 ? totalNetWorth : userCoins > 0 ? userCoins : 0;
+      if (val > 0) {
+        setWealthInput(val.toLocaleString());
+      }
+    }
+  }, [totalNetWorth, userCoins, hasManuallyEditedWealth]);
 
   const userWealth = useMemo(() => parseGp(wealthInput), [wealthInput]);
   const bondCost = bondSafeBid;
@@ -70,8 +81,9 @@ export default function BondRoadmapPage() {
 
   // Sync wealth from context
   const handleAutoSync = () => {
-    const val = totalNetWorth > 0 ? totalNetWorth : userCoins > 0 ? userCoins : 5000000;
+    const val = totalNetWorth > 0 ? totalNetWorth : userCoins > 0 ? userCoins : 0;
     setWealthInput(val.toLocaleString());
+    setHasManuallyEditedWealth(false);
     showToast(`Synced wealth from game: ${val.toLocaleString()} gp`);
   };
 
@@ -87,9 +99,20 @@ export default function BondRoadmapPage() {
   const cushionAcc = Math.max(0, userWealth - bondCost);
   const cushionProgressPct = cushion > 0 ? Math.min(100, (cushionAcc / cushion) * 100) : 0;
 
+  // Calculate live session rate when "⚡ Live Active Session Rate" (rate: 0) is selected
+  const liveSessionRate = useMemo(() => {
+    if (sessionLog && sessionLog.length > 0) {
+      const totalProfit = sessionLog.reduce((acc, s) => acc + (s.netProfit || 0), 0);
+      const totalCasts = sessionLog.reduce((acc, s) => acc + (s.qty || 1), 0);
+      const avgProfitPerCast = totalCasts > 0 ? totalProfit / totalCasts : 650;
+      return Math.max(100000, Math.round(avgProfitPerCast * 1200));
+    }
+    return 780000;
+  }, [sessionLog]);
+
   // Pace Calculations
   const neededGp = Math.max(0, totalGoal - userWealth);
-  const grindRate = earningMethod > 0 ? earningMethod : 780000;
+  const grindRate = earningMethod > 0 ? earningMethod : liveSessionRate;
   const totalHoursNeeded = grindRate > 0 ? neededGp / grindRate : 0;
   const daysNeeded = playtimeHours > 0 ? totalHoursNeeded / playtimeHours : 0;
   const castsNeeded = Math.round(totalHoursNeeded * 1200);
@@ -203,7 +226,10 @@ export default function BondRoadmapPage() {
               <input
                 type="text"
                 value={wealthInput}
-                onChange={(e) => setWealthInput(e.target.value)}
+                onChange={(e) => {
+                  setWealthInput(e.target.value);
+                  setHasManuallyEditedWealth(true);
+                }}
                 placeholder="e.g. 5m, 8.5m, 12000000"
                 className="w-full bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2 text-emerald-400 font-bold focus:outline-none focus:border-emerald-500"
               />
