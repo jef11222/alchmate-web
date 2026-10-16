@@ -290,8 +290,9 @@ export default function CraftingPage() {
       const profitHr = profitEa * actionsHr;
       const xpHr = Math.round((r.xp || 0) * actionsHr);
 
-      // 4h Batch limits (approximate standard production batch)
-      const batchLimit = 500;
+      // 4h Batch limits constrained by output GE buy limit (or sensible production batch)
+      const rawLimit = Number(r.buy_limit || (outObj as any)?.limit || 500);
+      const batchLimit = Math.max(1, rawLimit);
       const batchProfit = profitEa * batchLimit;
 
       // Best Buy Ceilings for each material

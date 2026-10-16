@@ -5,10 +5,21 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://frgpckemani
 const supabaseSecret = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
 // Admin client to safely handle sync events
-const supabaseAdmin = createClient(supabaseUrl, supabaseSecret);
+const getSupabaseAdmin = () => {
+  if (!supabaseUrl || !supabaseSecret) return null;
+  return createClient(supabaseUrl, supabaseSecret);
+};
 
 export async function POST(req: NextRequest) {
   try {
+    const supabaseAdmin = getSupabaseAdmin();
+    if (!supabaseAdmin) {
+      return NextResponse.json({ 
+        success: false, 
+        message: 'Supabase credentials not configured' 
+      }, { status: 200 });
+    }
+
     const body = await req.json();
     const authHeader = req.headers.get('authorization')?.replace('Bearer ', '').trim();
     const token = body.sync_token || body.syncToken || authHeader || '';
@@ -144,7 +155,8 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Missing sync token' }, { status: 400 });
     }
 
-    if (!supabaseSecret) {
+    const supabaseAdmin = getSupabaseAdmin();
+    if (!supabaseAdmin) {
       return NextResponse.json({ 
         success: false, 
         message: 'Supabase credentials not configured',

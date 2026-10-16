@@ -285,12 +285,21 @@ export function AlchMateProvider({ children }: { children: React.ReactNode }) {
           const current = data.characters.find((c: any) => c.rsn === activeAccount) || data.characters[0];
           if (current) {
             if (current.coins !== undefined) {
-              setUserCoins(Number(current.coins));
-              localStorage.setItem('alchmate_coins', String(current.coins));
+              const syncedCoins = Number(current.coins);
+              setUserCoins(syncedCoins);
+              localStorage.setItem('alchmate_coins', String(syncedCoins));
+              if (current.total_wealth !== undefined) {
+                const syncedBatch = Math.max(0, Number(current.total_wealth) - syncedCoins);
+                setUserBatchValue(syncedBatch);
+                localStorage.setItem('alchmate_batch_val', String(syncedBatch));
+              }
             }
             if (current.nature_runes !== undefined) {
-              setUserNats(Number(current.nature_runes));
-              localStorage.setItem('alchmate_nats', String(current.nature_runes));
+              const syncedNats = Number(current.nature_runes);
+              setUserNats(syncedNats);
+              setOwnedNats(syncedNats);
+              localStorage.setItem('alchmate_nats', String(syncedNats));
+              localStorage.setItem('alchmate_owned_nats', String(syncedNats));
             }
             if (!activeAccount || activeAccount === 'Main') {
               setActiveAccount(current.rsn);
@@ -347,8 +356,8 @@ export function AlchMateProvider({ children }: { children: React.ReactNode }) {
       if (!res.ok) throw new Error('Wiki API error');
       const data: PriceData = await res.json();
       setPriceData(data);
-      if (data.nature_rune && natureRuneOverride === 170) {
-        setNatureRuneOverride(data.nature_rune);
+      if (data.nature_rune) {
+        setNatureRuneOverride((prev) => (prev === 170 ? data.nature_rune : prev));
       }
       setIsStaleData(data.is_stale || false);
       setNextRefreshSec(60);
@@ -357,7 +366,7 @@ export function AlchMateProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, [natureRuneOverride]);
+  }, []);
 
   // Initial fetch and 60s auto-refresh
   useEffect(() => {
