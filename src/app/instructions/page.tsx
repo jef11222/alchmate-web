@@ -2,18 +2,30 @@
 
 import React from 'react';
 import Link from 'next/link';
+import { 
+  Cpu, 
+  ShieldCheck, 
+  Zap, 
+  Flame, 
+  Coins, 
+  Hammer, 
+  Clock, 
+  ExternalLink,
+  Copy,
+  AlertTriangle
+} from 'lucide-react';
 
 export default function InstructionsPage() {
   return (
     <div className="space-y-8 max-w-5xl mx-auto pb-12">
       {/* Header Banner */}
-      <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-6 shadow-lg relative overflow-hidden">
+      <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 md:p-8 shadow-xl relative overflow-hidden">
         <div className="flex items-center gap-3">
           <span className="text-3xl">📖</span>
           <div>
-            <h1 className="text-2xl font-bold text-amber-400">Player Guide & RuneLite Plugin Setup</h1>
+            <h1 className="text-2xl font-bold text-amber-400">Player Guide & Local Hub Setup</h1>
             <p className="text-sm text-neutral-400 mt-1">
-              Master the AlchMate ecosystem: from linking your live RuneLite client to bypassing 4-hour buy limits on World 308.
+              Master the AlchMate ecosystem: 100% pure local PC architecture, instant multi-client aggregation, and World 308 bulk trading.
             </p>
           </div>
         </div>
@@ -22,10 +34,10 @@ export default function InstructionsPage() {
       {/* Guide Navigation Shortcuts */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <a
-          href="#plugin-setup"
+          href="#local-hub"
           className="bg-neutral-900 border border-neutral-800 hover:border-neutral-700 p-3 rounded-xl text-center text-xs font-semibold text-neutral-300 hover:text-amber-400 transition"
         >
-          🔌 Plugin Setup
+          ⚡ Local PC Hub
         </a>
         <a
           href="#zero-to-alch"
@@ -47,48 +59,60 @@ export default function InstructionsPage() {
         </a>
       </div>
 
-      {/* Section 1: RuneLite Plugin & Hub Rule Compliance */}
-      <section id="plugin-setup" className="bg-neutral-900 border border-neutral-800 rounded-xl p-6 space-y-4">
+      {/* Section 1: 100% Pure Local PC Standalone Architecture */}
+      <section id="local-hub" className="bg-neutral-900 border border-neutral-800 rounded-xl p-6 space-y-5">
         <div className="flex items-center gap-2 border-b border-neutral-800 pb-3">
-          <span className="text-xl">🔌</span>
-          <h2 className="text-lg font-bold text-neutral-100">Step 1: In-Game Plugin & RuneLite Hub Compliance</h2>
+          <span className="text-xl">⚡</span>
+          <h2 className="text-lg font-bold text-neutral-100">Step 1: 100% Pure Local Standalone Architecture</h2>
         </div>
 
         <div className="space-y-4 text-sm text-neutral-300">
-          <p>
-            AlchMate includes an in-game RuneLite plugin engineered strictly within official <strong>RuneLite Plugin Hub Guidelines</strong>.
+          <p className="leading-relaxed">
+            Unlike web apps that require account registration, cloud sync tokens, or external databases, AlchMate operates as a <strong>100% local, self-contained system running entirely on your PC</strong>.
           </p>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-1">
             <div className="bg-neutral-950 p-4 rounded-lg border border-neutral-800 space-y-2">
-              <span className="text-xs font-bold text-amber-400 uppercase tracking-wider block">1. 100% Client-Side Privacy</span>
-              <p className="text-xs text-neutral-400">
-                In strict accordance with RuneLite Hub rules, the plugin <strong>never</strong> sends player telemetry, account names, or in-game cash to remote third-party web servers.
+              <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider block">1. Embedded Micro Web Server</span>
+              <p className="text-xs text-neutral-400 leading-relaxed">
+                The RuneLite plugin runs an embedded micro HTTP server on <code className="text-emerald-300 font-mono">127.0.0.1:18833</code>. The full web suite is served straight from your computer with zero latency.
               </p>
             </div>
 
             <div className="bg-neutral-950 p-4 rounded-lg border border-neutral-800 space-y-2">
-              <span className="text-xs font-bold text-amber-400 uppercase tracking-wider block">2. In-Game HUD & Side Panel</span>
-              <p className="text-xs text-neutral-400">
-                Displays real-time High Alch profit/hr, casts per hour, Magic XP drops (+65 XP), and your Two-Stage Bond Progress directly above your inventory.
+              <span className="text-xs font-bold text-amber-400 uppercase tracking-wider block">2. Multi-Client Auto-Aggregation</span>
+              <p className="text-xs text-neutral-400 leading-relaxed">
+                Run 2, 5, or 10 RuneLite clients simultaneously! The first client acts as the <strong>Master Hub</strong> on port 18833. Other clients automatically act as Spokes and forward events, aggregating into a single dashboard.
               </p>
             </div>
 
             <div className="bg-neutral-950 p-4 rounded-lg border border-neutral-800 space-y-2">
-              <span className="text-xs font-bold text-amber-400 uppercase tracking-wider block">3. 1-Click Bank Tag Integration</span>
-              <p className="text-xs text-neutral-400">
-                Use the <code className="text-emerald-400 font-mono">📋 Copy Bank Tag</code> button on this website to instantly group your alchemy batches in RuneLite bank tabs without third-party plugins.
+              <span className="text-xs font-bold text-sky-400 uppercase tracking-wider block">3. Zero Cloud / Absolute Privacy</span>
+              <p className="text-xs text-neutral-400 leading-relaxed">
+                No telemetry, IP tracking, or passwords. Your character names, cash stacks, and session data <strong>never leave your machine</strong>.
               </p>
             </div>
+          </div>
+
+          <div className="bg-[#141822] border border-[#232d3f] p-4 rounded-lg space-y-2">
+            <h4 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
+              <Zap className="w-4 h-4 text-amber-400" />
+              <span>How To Open Your Local Dashboard:</span>
+            </h4>
+            <ol className="list-decimal list-inside text-xs text-neutral-300 space-y-1.5 leading-relaxed pl-1">
+              <li>Open <strong>RuneLite</strong> and click the <strong>AlchMate</strong> flame icon in the right sidebar.</li>
+              <li>Click the large <code className="text-amber-400 font-bold bg-neutral-950 px-2 py-0.5 rounded border border-neutral-800">🌐 Open Dashboard</code> button.</li>
+              <li>Your default browser instantly opens <code className="text-emerald-400 font-mono">http://127.0.0.1:18833</code> and brings the window directly to the front!</li>
+            </ol>
           </div>
 
           <div className="bg-sky-950/20 border border-sky-800/40 p-3.5 rounded-lg text-xs text-sky-300 space-y-1">
             <div className="flex items-center gap-2 font-bold text-sky-400">
               <span>🌐</span>
-              <span>Where Does AlchMate Get Its Live Market Data? (Official Wiki API)</span>
+              <span>Direct OSRS Wiki Market Data (No Middlemen)</span>
             </div>
             <p className="text-neutral-300 leading-relaxed">
-              AlchMate is powered directly by the official <strong>Old School RuneScape Wiki Real-Time Market API</strong> (<code className="text-amber-300 font-mono">prices.runescape.wiki</code>). No personal API keys or third-party registrations are needed — live Grand Exchange asks, bids, 5-minute trade velocity, and bond pricing stream automatically to your browser every 60 seconds!
+              The browser fetches live Grand Exchange prices, 5-minute trade velocity, and bond pricing directly from the official <strong>Old School RuneScape Wiki API</strong> (<code className="text-amber-300 font-mono">prices.runescape.wiki</code>). Fast, reliable, and completely open.
             </p>
           </div>
         </div>
@@ -173,7 +197,7 @@ export default function InstructionsPage() {
           {/* Anti Scam Warning */}
           <div className="bg-red-950/30 border border-red-700/50 p-4 rounded-lg space-y-2">
             <div className="flex items-center gap-2 text-sm font-bold text-red-400">
-              <span>⚠️</span>
+              <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
               <span>Crucial Anti-Scam Warning for Bulk Trades:</span>
             </div>
             <p className="text-xs text-red-200/90 leading-relaxed">

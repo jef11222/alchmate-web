@@ -16,6 +16,41 @@ interface ReleaseNote {
 
 const RELEASES: ReleaseNote[] = [
   {
+    version: 'v2.1.0',
+    date: 'October 2026',
+    title: '100% Pure Local Standalone Architecture & Multi-Account Hub',
+    platforms: ['Web', 'Plugin'],
+    highlights: [
+      'Eliminated all outward/inward cloud services, access gates, and sync tokens',
+      'Embedded micro web server running directly on http://127.0.0.1:18833',
+      'Seamless multi-client auto-aggregation with automatic Master Hub failover',
+      'Windows Shell foreground browser activation on "Open Dashboard" click',
+      'Eliminated double logging on Master Hub client',
+      'Direct OSRS Wiki API pricing with zero CORS preflight overhead',
+    ],
+    details: [
+      {
+        category: '🌐 Web Application',
+        items: [
+          'Removed StagingGate access restrictions and Community Tier banners.',
+          'Direct Wiki API integration without CORS preflight (OPTIONS) rejection.',
+          'Zero-latency local synchronization with automatic client presence detection.',
+          'Clean, streamlined Navbar & Player HUD with live local account indicators.',
+        ],
+      },
+      {
+        category: '🔌 RuneLite Plugin',
+        items: [
+          'Single-port (18833) Master Hub with automatic Spoke failover.',
+          'Eliminated cloud poller hammering external endpoints.',
+          'Responsive in-game sidebar panel fitting RuneLite without label truncation.',
+          'Active RSN pill and live Hub connection status in sidebar.',
+          'Protected local file overrides via ~/.runelite/alchmate/web/.',
+        ],
+      },
+    ],
+  },
+  {
     version: 'v2.0.0',
     date: 'October 2026',
     title: 'The Modular Web Suite & QuantScapers Hover Engine',

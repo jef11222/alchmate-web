@@ -14,7 +14,8 @@ import {
   TrendingUp, 
   Sparkles,
   Download,
-  AlertTriangle
+  AlertTriangle,
+  Cpu
 } from 'lucide-react';
 import { useAlchMate, AlchItem } from '../context/AlchMateContext';
 import ItemHoverCard from '../components/ItemHoverCard';
@@ -274,15 +275,15 @@ export default function HomePage() {
         <div className="space-y-2 text-center md:text-left">
           <h2 className="text-2xl font-black text-white">AlchMate RuneLite Plugin</h2>
           <p className="text-xs md:text-sm text-neutral-300 max-w-xl">
-            Track your alchemy efficiency with our official in-game overlay, side panel, profit rate tracker, and 1-click Bank Tag integration.
+            Track your alchemy efficiency with our 100% local in-game overlay, side panel launcher, profit rate tracker, and 1-click Bank Tag integration.
           </p>
         </div>
         <Link
           href="/instructions"
           className="shrink-0 px-6 py-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-extrabold text-sm shadow-lg shadow-amber-500/25 transition-all flex items-center gap-2"
         >
-          <Download className="w-4 h-4" />
-          <span>Plugin Setup Guide &rarr;</span>
+          <Cpu className="w-4 h-4" />
+          <span>Local Hub Guide &rarr;</span>
         </Link>
       </section>
       {/* Floating Hover Info Card */}

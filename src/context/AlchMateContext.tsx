@@ -256,17 +256,6 @@ export function AlchMateProvider({ children }: { children: React.ReactNode }) {
       const savedSession = localStorage.getItem('alchmate_session');
       if (savedSession) setSessionLog(JSON.parse(savedSession));
 
-      const savedToken = localStorage.getItem('alchmate_sync_token');
-      let token = savedToken;
-      if (!token && typeof crypto !== 'undefined' && crypto.getRandomValues) {
-        const randomHex = Array.from(crypto.getRandomValues(new Uint8Array(12)))
-          .map((b) => b.toString(16).padStart(2, '0'))
-          .join('');
-        token = `alch_${randomHex}`;
-        localStorage.setItem('alchmate_sync_token', token);
-      }
-      if (token) setSyncToken(token);
-
       const savedCoins = localStorage.getItem('alchmate_coins');
       if (savedCoins) {
         const nCoins = Number(savedCoins);
@@ -284,12 +273,9 @@ export function AlchMateProvider({ children }: { children: React.ReactNode }) {
 
   const updateSyncToken = useCallback((t: string) => {
     setSyncToken(t);
-    try {
-      localStorage.setItem('alchmate_sync_token', t);
-    } catch {}
   }, []);
 
-  // Background Polling (Priority 1: Embedded Local Server 127.0.0.1:18833 | Priority 2: Direct Supabase / Cloud)
+  // Background Polling (Embedded Local Server on 127.0.0.1:18833)
   useEffect(() => {
     let isMounted = true;
     let timerId: any = null;
@@ -300,19 +286,17 @@ export function AlchMateProvider({ children }: { children: React.ReactNode }) {
 
     const getAdaptiveDelay = () => {
       if (typeof document !== 'undefined' && document.hidden) {
-        return 60000;
+        return 30000;
       }
-      // If connected to local embedded server, poll at high speed (2s active, 6s idle)
+      // If connected to local embedded server, poll at ultra-low latency (2s active, 4s idle)
       if (isCurrentlyLocal) {
         const idleMinutes = (Date.now() - lastActiveTime) / 60000;
-        if (idleMinutes > 10) return 10000;
-        if (idleMinutes > 2 || consecutiveUnchangedCount > 6) return 6000;
+        if (idleMinutes > 10) return 6000;
+        if (idleMinutes > 2 || consecutiveUnchangedCount > 6) return 4000;
         return 2000;
       }
-      const idleMinutes = (Date.now() - lastActiveTime) / 60000;
-      if (idleMinutes > 10) return 60000; // 60s if idle >10m
-      if (idleMinutes > 2 || consecutiveUnchangedCount > 6) return 25000; // 25s if no changes
-      return 10000; // 10s active normal cloud polling
+      // If local server offline, check every 3s to detect when RuneLite starts
+      return 3000;
     };
 
     const scheduleNextPoll = () => {

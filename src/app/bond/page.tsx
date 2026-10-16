@@ -65,7 +65,7 @@ export default function BondRoadmapPage() {
   const [playtimeHours, setPlaytimeHours] = useState<number>(4);
   const [earningMethod, setEarningMethod] = useState<number>(780000); // 780k default F2P
 
-  // Auto-sync wealthInput whenever totalNetWorth or userCoins updates from Cloud Sync
+  // Auto-sync wealthInput whenever totalNetWorth or userCoins updates from Local RuneLite Sync
   useEffect(() => {
     if (!hasManuallyEditedWealth) {
       const val = totalNetWorth > 0 ? totalNetWorth : userCoins > 0 ? userCoins : 0;
