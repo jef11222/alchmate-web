@@ -24,7 +24,8 @@ export default function PlayerHUD() {
     activeAccount, 
     setActiveAccount, 
     allAccounts,
-    syncToken
+    syncToken,
+    isLocalServer
   } = useAlchMate();
 
   const bondPrice = priceData?.bond?.patient_bid || priceData?.bond?.bid || 11750000;
@@ -93,14 +94,18 @@ export default function PlayerHUD() {
             </div>
           </Link>
 
-          {/* Link RuneLite Button */}
+          {/* Link RuneLite / Local Server Button */}
           <button
             onClick={() => setShowLinkModal(true)}
-            className="flex items-center gap-1.5 bg-[#181d28] hover:bg-[#202738] border border-blue-500/40 text-blue-400 hover:text-blue-300 px-3 py-1 rounded-lg transition-all font-mono font-bold cursor-pointer"
-            title="Get your Cloud Sync Key to link RuneLite"
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-lg transition-all font-mono font-bold cursor-pointer ${
+              isLocalServer
+                ? 'bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/40 text-emerald-400'
+                : 'bg-[#181d28] hover:bg-[#202738] border border-blue-500/40 text-blue-400 hover:text-blue-300'
+            }`}
+            title={isLocalServer ? 'Connected directly to RuneLite Local Server (127.0.0.1:18833)' : 'Get your Cloud Sync Key to link RuneLite'}
           >
-            <Zap className="w-3.5 h-3.5 text-amber-400" />
-            <span>Link RuneLite</span>
+            <Zap className={`w-3.5 h-3.5 ${isLocalServer ? 'text-emerald-400 animate-pulse' : 'text-amber-400'}`} />
+            <span>{isLocalServer ? 'Local Server (Active)' : 'Link RuneLite'}</span>
           </button>
         </div>
       </div>

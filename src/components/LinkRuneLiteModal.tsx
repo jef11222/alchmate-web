@@ -29,7 +29,9 @@ export default function LinkRuneLiteModal({ isOpen, onClose }: LinkRuneLiteModal
     userCoins,
     userNats,
     allAccounts,
-    activeAccount
+    activeAccount,
+    isLocalServer,
+    syncedCharacters
   } = useAlchMate();
 
   const [copiedKey, setCopiedKey] = useState(false);
@@ -43,9 +45,17 @@ export default function LinkRuneLiteModal({ isOpen, onClose }: LinkRuneLiteModal
     ? `${window.location.origin}/api/sync` 
     : 'https://alchmate-web.vercel.app/api/sync';
 
-  // Check sync status whenever modal opens or syncToken changes
+  // Check sync status whenever modal opens, syncToken changes, or isLocalServer changes
   useEffect(() => {
-    if (!isOpen || !syncToken) {
+    if (!isOpen) return;
+
+    if (isLocalServer && syncedCharacters.length > 0) {
+      setSyncStatus('connected');
+      setLastCharacter(syncedCharacters.find((c) => c.rsn === activeAccount) || syncedCharacters[0]);
+      return;
+    }
+
+    if (!syncToken) {
       setSyncStatus('waiting');
       return;
     }
@@ -76,7 +86,7 @@ export default function LinkRuneLiteModal({ isOpen, onClose }: LinkRuneLiteModal
       isMounted = false;
       clearInterval(interval);
     };
-  }, [isOpen, syncToken]);
+  }, [isOpen, syncToken, isLocalServer, syncedCharacters, activeAccount]);
 
   // Keep input in sync
   useEffect(() => {
@@ -171,7 +181,7 @@ export default function LinkRuneLiteModal({ isOpen, onClose }: LinkRuneLiteModal
               )}
               <div>
                 <span className="font-bold text-xs uppercase tracking-wider block">
-                  {syncStatus === 'connected' ? '🟢 Plugin Connected & Active' : syncStatus === 'checking' ? '🟡 Checking Live Link...' : '⚪ Waiting for RuneLite Link'}
+                  {isLocalServer ? '⚡ RuneLite Local Server Connected (0ms Latency)' : syncStatus === 'connected' ? '🟢 Plugin Connected & Active' : syncStatus === 'checking' ? '🟡 Checking Live Link...' : '⚪ Waiting for RuneLite Link'}
                 </span>
                 {syncStatus === 'connected' && lastCharacter && (
                   <span className="text-[11px] text-emerald-400/80 font-mono">

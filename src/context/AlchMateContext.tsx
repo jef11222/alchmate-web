@@ -144,10 +144,11 @@ interface AlchMateContextType {
   setActiveAccount: (acc: string) => void;
   allAccounts: string[];
 
-  // Cloud Sync
+  // Cloud & Local Sync
   syncToken: string;
   setSyncToken: (t: string) => void;
   syncedCharacters: SyncedCharacter[];
+  isLocalServer: boolean;
   userCoins: number;
   setUserCoins: (c: number) => void;
   userNats: number;
@@ -205,9 +206,10 @@ export function AlchMateProvider({ children }: { children: React.ReactNode }) {
   const [sessionLog, setSessionLog] = useState<SessionEntry[]>([]);
   const [activeAccount, setActiveAccount] = useState<string>('Main');
 
-  // Cloud Sync
+  // Cloud & Local Sync
   const [syncToken, setSyncToken] = useState<string>('');
   const [syncedCharacters, setSyncedCharacters] = useState<SyncedCharacter[]>([]);
+  const [isLocalServer, setIsLocalServer] = useState<boolean>(false);
   const [userCoins, setUserCoins] = useState<number>(0);
   const [userNats, setUserNats] = useState<number>(0);
   const [userBatchValue, setUserBatchValue] = useState<number>(0);
@@ -287,24 +289,30 @@ export function AlchMateProvider({ children }: { children: React.ReactNode }) {
     } catch {}
   }, []);
 
-  // Background Cloud Sync Polling with Smart Visibility Sleep Mode & Idle Backoff
+  // Background Polling (Priority 1: Embedded Local Server 127.0.0.1:18833 | Priority 2: Direct Supabase / Cloud)
   useEffect(() => {
-    if (!syncToken) return;
-
     let isMounted = true;
     let timerId: any = null;
     let lastActiveTime = Date.now();
     let consecutiveUnchangedCount = 0;
     let lastDataHash = '';
+    let isCurrentlyLocal = false;
 
     const getAdaptiveDelay = () => {
       if (typeof document !== 'undefined' && document.hidden) {
         return 60000;
       }
+      // If connected to local embedded server, poll at high speed (2s active, 6s idle)
+      if (isCurrentlyLocal) {
+        const idleMinutes = (Date.now() - lastActiveTime) / 60000;
+        if (idleMinutes > 10) return 10000;
+        if (idleMinutes > 2 || consecutiveUnchangedCount > 6) return 6000;
+        return 2000;
+      }
       const idleMinutes = (Date.now() - lastActiveTime) / 60000;
       if (idleMinutes > 10) return 60000; // 60s if idle >10m
       if (idleMinutes > 2 || consecutiveUnchangedCount > 6) return 25000; // 25s if no changes
-      return 10000; // 10s active normal polling
+      return 10000; // 10s active normal cloud polling
     };
 
     const scheduleNextPoll = () => {
@@ -323,9 +331,40 @@ export function AlchMateProvider({ children }: { children: React.ReactNode }) {
       try {
         let charactersData: any[] = [];
         let sessionsData: any[] = [];
+        let sourceIsLocal = false;
+
+        // 0. Primary: Local Embedded Server Check (127.0.0.1:18833) - 0ms latency, $0 cost, zero keys!
+        try {
+          const localController = new AbortController();
+          const localTimeout = setTimeout(() => localController.abort(), 1200);
+          const localRes = await fetch('http://127.0.0.1:18833/api/sync', {
+            method: 'GET',
+            headers: { Accept: 'application/json' },
+            signal: localController.signal,
+          });
+          clearTimeout(localTimeout);
+
+          if (localRes.ok) {
+            const localData = await localRes.json();
+            if (localData?.characters && Array.isArray(localData.characters) && localData.characters.length > 0) {
+              charactersData = localData.characters;
+              if (localData?.sessions && Array.isArray(localData.sessions)) {
+                sessionsData = localData.sessions;
+              }
+              sourceIsLocal = true;
+            }
+          }
+        } catch {
+          // Local server offline or PNA/mixed content blocked, proceed to cloud sync
+        }
+
+        isCurrentlyLocal = sourceIsLocal;
+        if (isMounted) {
+          setIsLocalServer(sourceIsLocal);
+        }
 
         // 1. Direct Supabase Query (Zero Vercel Serverless Function Invocations)
-        if (supabase) {
+        if (!sourceIsLocal && syncToken && syncToken.trim() && supabase) {
           try {
             const { data: profile } = await supabase
               .from('profiles')
@@ -354,7 +393,7 @@ export function AlchMateProvider({ children }: { children: React.ReactNode }) {
         }
 
         // 2. Fallback to /api/sync if direct Supabase returned nothing
-        if (charactersData.length === 0) {
+        if (!sourceIsLocal && syncToken && syncToken.trim() && charactersData.length === 0) {
           const res = await fetch(`/api/sync?token=${encodeURIComponent(syncToken)}`);
           if (res.ok) {
             const data = await res.json();
@@ -675,6 +714,7 @@ export function AlchMateProvider({ children }: { children: React.ReactNode }) {
         setActiveAccount,
         allAccounts,
         syncedCharacters,
+        isLocalServer,
         syncToken,
         setSyncToken: updateSyncToken,
         userCoins,
