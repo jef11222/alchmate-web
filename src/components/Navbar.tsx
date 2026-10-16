@@ -80,6 +80,7 @@ export default function Navbar() {
             <div>
               <span className="font-extrabold text-lg tracking-tight text-white flex items-center gap-1.5">
                 AlchMate <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 font-bold border border-amber-500/20">OSRS</span>
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-extrabold border border-amber-500/30">BETA</span>
               </span>
             </div>
           </Link>
@@ -155,6 +156,17 @@ export default function Navbar() {
               <span className={`w-2 h-2 rounded-full ${isLocalServer ? 'bg-emerald-400 animate-pulse' : 'bg-neutral-500'}`} />
               <span>{isLocalServer ? (activeAccount ? activeAccount : 'Local Hub') : 'RuneLite Offline'}</span>
             </div>
+
+            {/* GitHub Issues / Bug Report Link */}
+            <a
+              href="https://github.com/jef11222/alchmate-plugin/issues"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hidden md:flex items-center gap-1 bg-[#181d28] hover:bg-[#202738] border border-amber-500/30 hover:border-amber-400 text-amber-400 px-2.5 py-1.5 rounded-lg text-xs font-mono font-bold shrink-0 transition"
+              title="Report bugs or feedback on GitHub"
+            >
+              <span>🐛 Bug Report</span>
+            </a>
 
             {/* Stale Data Indicator if offline */}
             {isStaleData && (
