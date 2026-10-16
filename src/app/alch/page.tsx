@@ -119,8 +119,8 @@ export default function AlchPage() {
     showToast
   } = useAlchMate();
 
-  // 4 Desktop Hub Sub-Views
-  const [activeTab, setActiveTab] = useState<'all' | 'rec' | 'overnight' | 'w308' | 'bank_tag'>('all');
+  // 5 Desktop Hub Sub-Views
+  const [activeTab, setActiveTab] = useState<'all' | 'rec' | 'overnight' | 'w308' | 'cart' | 'bank_tag'>('all');
   const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
@@ -414,8 +414,9 @@ export default function AlchPage() {
     return (w308StaplesData as any[]).find((s) => s.name === w308SelectedName) || (w308StaplesData as any[])[0];
   }, [w308SelectedName]);
 
+  const w308HighAlchVal = Number(w308StapleObj?.alch || w308StapleObj?.highalch || 38400);
   const w308TotalCoinsToGive = w308AgreedPrice * w308Qty;
-  const w308HighAlchTotal = (w308StapleObj?.highalch || 38400) * w308Qty;
+  const w308HighAlchTotal = w308HighAlchVal * w308Qty;
   const w308NatCostTotal = effectiveNatPrice * w308Qty;
   const w308NetProfit = w308HighAlchTotal - w308TotalCoinsToGive - w308NatCostTotal;
   const w308MagicXp = w308Qty * 65;
@@ -494,6 +495,15 @@ export default function AlchPage() {
           >
             <FileSpreadsheet className="w-3.5 h-3.5" />
             <span>🤝 W308 Bulk Trading</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('cart')}
+            className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer ${
+              activeTab === 'cart' ? 'bg-amber-500 text-black font-bold shadow' : 'text-neutral-300 hover:text-white'
+            }`}
+          >
+            <ShoppingCart className="w-3.5 h-3.5" />
+            <span>🛒 GE Cart ({cartItems.length}/8)</span>
           </button>
         </div>
       </div>
@@ -673,6 +683,16 @@ export default function AlchPage() {
                             />
                           </td>
                           <td className="py-3 px-4 font-sans font-bold text-white flex items-center gap-2">
+                            <img
+                              src={`https://static.runelite.net/cache/item/icon/${item.id}.png`}
+                              alt=""
+                              width={22}
+                              height={22}
+                              className="w-5 h-5 object-contain shrink-0"
+                              onError={(e) => {
+                                (e.target as HTMLElement).style.display = 'none';
+                              }}
+                            />
                             <span>{item.name}</span>
                             {item.members && (
                               <span className="text-[10px] px-1 py-0.2 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 font-mono font-semibold">
@@ -1252,11 +1272,14 @@ export default function AlchPage() {
                     }}
                     className="w-full bg-[#141721] border border-[#2a3449] text-white p-2 rounded-lg font-bold focus:outline-none"
                   >
-                    {(w308StaplesData as any[]).map((s) => (
-                      <option key={s.id} value={s.name}>
-                        {s.name} (Alch: {(s.highalch || 0).toLocaleString()} gp)
-                      </option>
-                    ))}
+                    {(w308StaplesData as any[]).map((s) => {
+                      const alchVal = Number(s.alch || s.highalch || 0);
+                      return (
+                        <option key={s.id} value={s.name}>
+                          {s.name} (Alch: {alchVal.toLocaleString()} gp)
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
 
@@ -1365,7 +1388,8 @@ export default function AlchPage() {
                 </thead>
                 <tbody className="divide-y divide-[#202738]">
                   {(w308StaplesData as any[]).map((st) => {
-                    const profitEa = st.highalch - st.w308_buy - effectiveNatPrice;
+                    const alchVal = Number(st.alch || st.highalch || 0);
+                    const profitEa = alchVal - (st.w308_buy || 0) - effectiveNatPrice;
                     return (
                       <tr key={st.id} className="hover:bg-[#1a2130] transition">
                         <td className="py-3 px-4 font-sans font-bold text-white flex items-center gap-2">
@@ -1377,10 +1401,10 @@ export default function AlchPage() {
                           )}
                         </td>
                         <td className="py-3 px-3 text-right text-amber-400 font-bold">
-                          {st.w308_buy.toLocaleString()} gp
+                          {(st.w308_buy || 0).toLocaleString()} gp
                         </td>
                         <td className="py-3 px-3 text-right text-neutral-300">
-                          {st.highalch.toLocaleString()} gp
+                          {alchVal.toLocaleString()} gp
                         </td>
                         <td className="py-3 px-3 text-right text-emerald-400 font-bold">
                           +{profitEa.toLocaleString()} gp
@@ -1404,6 +1428,196 @@ export default function AlchPage() {
                 </tbody>
               </table>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* SUB-VIEW 5: 🛒 8-SLOT GRAND EXCHANGE CART                       */}
+      {/* ============================================================== */}
+      {activeTab === 'cart' && (
+        <div className="space-y-5">
+          {/* Cart Header Card */}
+          <div className="bg-[#141721] p-6 rounded-2xl border border-[#242b3b] space-y-4">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+              <div>
+                <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                  <ShoppingCart className="w-5 h-5 text-amber-400" />
+                  🛒 8-Slot Grand Exchange Shopping Cart ({cartItems.length}/8 Slots)
+                </h2>
+                <p className="text-xs text-neutral-400 mt-1">
+                  Manage your active 8 GE buy offers. Export bank tags for RuneLite, start 4-hour limit cooldown timers, and monitor cash allocation.
+                </p>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <button
+                  onClick={() => copyBankTags(cartItems)}
+                  disabled={cartItems.length === 0}
+                  className="bg-blue-600/20 hover:bg-blue-600/30 disabled:opacity-40 text-blue-300 border border-blue-500/30 px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition cursor-pointer"
+                >
+                  <Tag className="w-3.5 h-3.5 text-blue-400" />
+                  <span>Copy Cart Bank Tag</span>
+                </button>
+                <button
+                  onClick={() => {
+                    if (cartItems.length === 0) return;
+                    cartItems.forEach((ci) => addTimer(ci));
+                    showToast(`⏱️ Started 4h timers for ${cartItems.length} cart items!`);
+                  }}
+                  disabled={cartItems.length === 0}
+                  className="bg-emerald-600/20 hover:bg-emerald-600/30 disabled:opacity-40 text-emerald-300 border border-emerald-500/30 px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition cursor-pointer"
+                >
+                  <Clock className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Log Cart (Start 4h Timers)</span>
+                </button>
+                <button
+                  onClick={clearCart}
+                  disabled={cartItems.length === 0}
+                  className="bg-rose-600/20 hover:bg-rose-600/30 disabled:opacity-40 text-rose-300 border border-rose-500/30 px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                  <span>Clear Cart</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Financial Overview Metrics */}
+            {(() => {
+              const totalItemsInCart = cartItems.reduce((acc, c) => acc + (c.buy_limit || c.limit || 70), 0);
+              const totalCost = cartItems.reduce((acc, c) => acc + ((c.buy_price || c.target_bid || 0) * (c.buy_limit || c.limit || 70)), 0);
+              const totalProfit = cartItems.reduce((acc, c) => acc + ((c.profit || c.profit_ea || 0) * (c.buy_limit || c.limit || 70)), 0);
+              const castingMins = Math.round((totalItemsInCart / 1200) * 60);
+
+              return (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-3 border-t border-[#202738] text-xs font-mono">
+                  <div className="bg-[#181d28] p-3 rounded-xl border border-[#2a3449]">
+                    <span className="text-neutral-400 block text-[11px] font-sans">GE Slots Used:</span>
+                    <strong className="text-amber-400 text-sm font-bold">{cartItems.length} / 8 Slots</strong>
+                  </div>
+                  <div className="bg-[#181d28] p-3 rounded-xl border border-[#2a3449]">
+                    <span className="text-neutral-400 block text-[11px] font-sans">Total Spend:</span>
+                    <strong className="text-white text-sm font-bold">{formatGp(totalCost)}</strong>
+                  </div>
+                  <div className="bg-[#181d28] p-3 rounded-xl border border-[#2a3449]">
+                    <span className="text-neutral-400 block text-[11px] font-sans">Expected Net Profit:</span>
+                    <strong className="text-emerald-400 text-sm font-bold">+{formatGp(totalProfit)}</strong>
+                  </div>
+                  <div className="bg-[#181d28] p-3 rounded-xl border border-[#2a3449]">
+                    <span className="text-neutral-400 block text-[11px] font-sans">Alch Time (1.2k/hr):</span>
+                    <strong className="text-cyan-400 text-sm font-bold">{castingMins} mins ({totalItemsInCart.toLocaleString()} items)</strong>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+
+          {/* 8 Slots Visual Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {Array.from({ length: 8 }).map((_, slotIdx) => {
+              const item = cartItems[slotIdx];
+              if (!item) {
+                return (
+                  <div
+                    key={`slot_${slotIdx}`}
+                    className="border-2 border-dashed border-[#242b3b] rounded-2xl p-6 flex flex-col items-center justify-center text-center space-y-2 min-h-[170px] bg-[#141721]/40 text-neutral-500"
+                  >
+                    <span className="text-xs font-mono font-bold">Slot {slotIdx + 1}</span>
+                    <p className="text-xs text-neutral-500">Empty GE Offer Slot</p>
+                    <button
+                      onClick={() => setActiveTab('all')}
+                      className="text-[11px] text-amber-400 hover:text-amber-300 font-semibold mt-1 cursor-pointer"
+                    >
+                      + Add Item from Table
+                    </button>
+                  </div>
+                );
+              }
+
+              const buyPrice = item.buy_price || item.target_bid || 0;
+              const limit = item.buy_limit || item.limit || 70;
+              const profitEa = item.profit || item.profit_ea || 0;
+              const totalCost = buyPrice * limit;
+              const slotProfit = profitEa * limit;
+
+              return (
+                <div
+                  key={item.id}
+                  className="bg-[#141721] border border-[#242b3b] hover:border-amber-500/50 p-4 rounded-2xl space-y-3 transition shadow-lg relative group"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <img
+                        src={`https://static.runelite.net/cache/item/icon/${item.id}.png`}
+                        alt=""
+                        width={28}
+                        height={28}
+                        className="w-7 h-7 object-contain shrink-0"
+                        onError={(e) => {
+                          (e.target as HTMLElement).style.display = 'none';
+                        }}
+                      />
+                      <div>
+                        <h4 className="font-bold text-white text-sm line-clamp-1 group-hover:text-amber-400 transition">
+                          {item.name}
+                        </h4>
+                        <span className="text-[11px] text-neutral-400 font-mono">
+                          Slot {slotIdx + 1} | Limit: {limit}
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => toggleCart(item)}
+                      className="text-neutral-500 hover:text-rose-400 p-1 transition cursor-pointer"
+                      title="Remove from cart"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <div className="space-y-1.5 font-mono text-xs border-t border-[#202738] pt-2">
+                    <div className="flex justify-between">
+                      <span className="text-neutral-400">Offer (Buy):</span>
+                      <strong className="text-white">{buyPrice.toLocaleString()} gp</strong>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-neutral-400">High Alch:</span>
+                      <span className="text-neutral-300">{(item.highalch || 0).toLocaleString()} gp</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-neutral-400">Profit / Ea:</span>
+                      <span className="text-emerald-400 font-bold">+{profitEa.toLocaleString()} gp</span>
+                    </div>
+                    <div className="flex justify-between border-t border-[#202738] pt-1">
+                      <span className="text-neutral-400">Total Spend:</span>
+                      <span className="text-amber-300">{formatGp(totalCost)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-neutral-400">Batch Profit:</span>
+                      <strong className="text-cyan-400 font-bold">+{formatGp(slotProfit)}</strong>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-2 border-t border-[#202738]">
+                    <button
+                      onClick={() => handleCopyPrice(item.id, buyPrice)}
+                      className="flex-1 py-1.5 bg-[#181d28] hover:bg-amber-500 hover:text-black text-neutral-300 rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1 cursor-pointer"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>Copy Bid</span>
+                    </button>
+                    <button
+                      onClick={() => addTimer(item)}
+                      className="p-1.5 bg-[#181d28] hover:bg-[#202738] text-neutral-300 rounded-lg transition border border-[#2a3449] cursor-pointer"
+                      title="Start 4h timer"
+                    >
+                      <Clock className="w-4 h-4 text-emerald-400" />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

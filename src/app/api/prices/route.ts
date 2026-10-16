@@ -191,7 +191,7 @@ export async function GET() {
         vol_5m_ask: askVol5m,
         vol_5m_total: total5m,
         secs_since_trade: secsSinceTrade,
-        icon: item.icon ? `https://oldschool.runescape.wiki/images/${encodeURIComponent(item.icon.replace(/ /g, '_'))}` : undefined
+        icon: `https://static.runelite.net/cache/item/icon/${item.id}.png`
       });
     }
 
