@@ -73,6 +73,17 @@ export interface SessionEntry {
   magicXp: number;
 }
 
+export interface SyncedCharacter {
+  id?: string;
+  rsn: string;
+  coins: number;
+  nature_runes: number;
+  total_wealth: number;
+  world?: number;
+  is_members?: boolean;
+  last_seen?: string;
+}
+
 interface AlchMateContextType {
   // Price & Market Data
   priceData: PriceData | null;
@@ -135,6 +146,7 @@ interface AlchMateContextType {
   // Cloud Sync
   syncToken: string;
   setSyncToken: (t: string) => void;
+  syncedCharacters: SyncedCharacter[];
   userCoins: number;
   setUserCoins: (c: number) => void;
   userNats: number;
@@ -194,6 +206,7 @@ export function AlchMateProvider({ children }: { children: React.ReactNode }) {
 
   // Cloud Sync
   const [syncToken, setSyncToken] = useState<string>('');
+  const [syncedCharacters, setSyncedCharacters] = useState<SyncedCharacter[]>([]);
   const [userCoins, setUserCoins] = useState<number>(0);
   const [userNats, setUserNats] = useState<number>(0);
   const [userBatchValue, setUserBatchValue] = useState<number>(0);
@@ -286,33 +299,13 @@ export function AlchMateProvider({ children }: { children: React.ReactNode }) {
         if (!isMounted) return;
 
         if (data?.characters && Array.isArray(data.characters) && data.characters.length > 0) {
-          const current = data.characters.find((c: any) => c.rsn === activeAccount) || data.characters[0];
-          if (current) {
-            if (current.coins !== undefined) {
-              const syncedCoins = Number(current.coins);
-              setUserCoins(syncedCoins);
-              if (syncedCoins > 0) {
-                setCashStack(syncedCoins);
-              }
-              localStorage.setItem('alchmate_coins', String(syncedCoins));
-              if (current.total_wealth !== undefined) {
-                const syncedBatch = Math.max(0, Number(current.total_wealth) - syncedCoins);
-                setUserBatchValue(syncedBatch);
-                localStorage.setItem('alchmate_batch', String(syncedBatch));
-                localStorage.setItem('alchmate_batch_val', String(syncedBatch));
-              }
+          setSyncedCharacters(data.characters);
+          setActiveAccount((prev) => {
+            if (!prev || prev === 'Main' || !data.characters.some((c: any) => c.rsn === prev)) {
+              return data.characters[0].rsn;
             }
-            if (current.nature_runes !== undefined) {
-              const syncedNats = Number(current.nature_runes);
-              setUserNats(syncedNats);
-              setOwnedNats(syncedNats);
-              localStorage.setItem('alchmate_nats', String(syncedNats));
-              localStorage.setItem('alchmate_owned_nats', String(syncedNats));
-            }
-            if (!activeAccount || activeAccount === 'Main') {
-              setActiveAccount(current.rsn);
-            }
-          }
+            return prev;
+          });
         }
 
         if (data?.sessions && Array.isArray(data.sessions) && data.sessions.length > 0) {
@@ -395,13 +388,49 @@ export function AlchMateProvider({ children }: { children: React.ReactNode }) {
     return userCoins + (userNats * natAssetPrice) + userBatchValue;
   }, [userCoins, userNats, priceData, natureRuneOverride, userBatchValue]);
 
-  // List of all active accounts across timers and session
+  // Keep live user stats bound to the currently selected activeAccount
+  useEffect(() => {
+    if (syncedCharacters.length === 0) return;
+    const current = syncedCharacters.find((c) => c.rsn === activeAccount) || syncedCharacters[0];
+    if (current) {
+      if (current.coins !== undefined) {
+        const syncedCoins = Number(current.coins);
+        setUserCoins(syncedCoins);
+        if (syncedCoins > 0) {
+          setCashStack(syncedCoins);
+        }
+        localStorage.setItem('alchmate_coins', String(syncedCoins));
+        if (current.total_wealth !== undefined) {
+          const syncedBatch = Math.max(0, Number(current.total_wealth) - syncedCoins);
+          setUserBatchValue(syncedBatch);
+          localStorage.setItem('alchmate_batch', String(syncedBatch));
+          localStorage.setItem('alchmate_batch_val', String(syncedBatch));
+        }
+      }
+      if (current.nature_runes !== undefined) {
+        const syncedNats = Number(current.nature_runes);
+        setUserNats(syncedNats);
+        setOwnedNats(syncedNats);
+        localStorage.setItem('alchmate_nats', String(syncedNats));
+        localStorage.setItem('alchmate_owned_nats', String(syncedNats));
+      }
+    }
+  }, [activeAccount, syncedCharacters]);
+
+  // List of all active accounts across synced characters, timers, and session
   const allAccounts = useMemo(() => {
-    const set = new Set<string>(['Main']);
+    const set = new Set<string>();
+    syncedCharacters.forEach((c) => c.rsn && set.add(c.rsn));
     timers.forEach((t) => t.account && set.add(t.account));
     sessionLog.forEach((s) => s.account && set.add(s.account));
+    if (activeAccount && activeAccount !== 'Main') {
+      set.add(activeAccount);
+    }
+    if (set.size === 0) {
+      set.add('Main');
+    }
     return Array.from(set);
-  }, [timers, sessionLog]);
+  }, [syncedCharacters, timers, sessionLog, activeAccount]);
 
   // Cart operations
   const toggleCart = useCallback((item: any) => {
@@ -544,6 +573,7 @@ export function AlchMateProvider({ children }: { children: React.ReactNode }) {
         activeAccount,
         setActiveAccount,
         allAccounts,
+        syncedCharacters,
         syncToken,
         setSyncToken: updateSyncToken,
         userCoins,
